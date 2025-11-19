@@ -1,60 +1,27 @@
-# ============================================================
-# ArtEmis Image Caption Generation - Requirements
-# ============================================================
-# Install with: pip install -r requirements.txt
-# ============================================================
+# ArtEmis Image Caption Generation - Dependencies
 
-# Core Deep Learning (Keras/TensorFlow)
-# --------------------------------------
-tensorflow>=2.13.0          # Deep learning framework (includes Keras)
-keras>=2.13.0               # High-level neural networks API
+# Deep Learning
+tensorflow>=2.13.0
+keras>=2.13.0
 
 # Data Processing
-# ---------------
-pandas>=2.0.0               # CSV data manipulation
-numpy>=1.24.0               # Numerical operations
-pillow>=10.0.0              # Image loading and processing
-scikit-learn>=1.3.0         # ML utilities (TF-IDF, train/test split)
+pandas>=2.0.0
+numpy>=1.24.0
+pillow>=10.0.0
+scikit-learn>=1.3.0
 
-# Natural Language Processing
-# ----------------------------
-nltk>=3.8.0                 # Text preprocessing, tokenization, BLEU score
-gensim>=4.3.0               # Word2Vec embeddings
+# NLP
+nltk>=3.8.0
+gensim>=4.3.0
 
 # Visualization
-# -------------
-matplotlib>=3.7.0           # Plotting and charts
-seaborn>=0.12.0             # Statistical visualization
+matplotlib>=3.7.0
+seaborn>=0.12.0
 
-# Jupyter Notebooks
-# ------------------
-jupyter>=1.0.0              # Jupyter notebook environment
-ipywidgets>=8.1.0           # Interactive widgets for notebooks
+# Jupyter
+jupyter>=1.0.0
+ipywidgets>=8.1.0
 
-# Progress Bars and Utilities
-# ----------------------------
-tqdm>=4.65.0                # Progress bars for loops
-
-# Model Saving
-# ------------
-h5py>=3.9.0                 # Save/load Keras models in .h5 format
-
-# ============================================================
-# INSTALLATION INSTRUCTIONS:
-# ============================================================
-#
-# 1. Activate your virtual environment:
-#    .venv\Scripts\activate  (Windows)
-#
-# 2. Install all packages:
-#    pip install -r requirements.txt
-#
-# 3. Download NLTK data (after installation):
-#    python -c "import nltk; nltk.download('punkt'); nltk.download('stopwords'); nltk.download('wordnet')"
-#
-# 4. For GPU support (optional but recommended):
-#    - Ensure you have CUDA installed
-#    - TensorFlow will automatically use GPU if available
-#
-# ============================================================
-
+# Utilities
+tqdm>=4.65.0
+h5py>=3.9.0
