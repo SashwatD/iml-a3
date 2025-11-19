@@ -1,0 +1,58 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Virtual Environment
+.venv/
+venv/
+ENV/
+env/
+
+# Jupyter Notebook
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# Data Files (too large for git)
+data/wikiart/
+data/processed/
+data/embeddings/
+*.csv
+*.pkl
+*.npy
+
+# Model Files (too large for git)
+models/*.h5
+models/*.pt
+models/*.keras
+models/*.weights.h5
+
+# Results and Outputs
+results/
+*.png
+*.jpg
+*.jpeg
+!docs/*.png  # Keep documentation images
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+*.tmp
+*.bak
+*.swp
+
