@@ -19,6 +19,7 @@ env/
 data/wikiart/
 data/processed/
 data/embeddings/
+data/**
 *.csv
 *.pkl
 *.npy

@@ -128,4 +128,4 @@ if __name__ == "__main__":
     print(f"Images: {dummy_images.shape}")
     print(f"Captions: {dummy_captions.shape}")
     print(f"Predictions: {predictions.shape}")
-    print("✓ Complete model working correctly")
+    print("Complete model working correctly")
