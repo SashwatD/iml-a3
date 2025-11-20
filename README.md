@@ -13,6 +13,13 @@ Generate emotional, descriptive captions for artwork images using deep learning.
 - **WikiArt Images**: Organized by art style
 - **Subset**: Using 5-10k images for training
 
+## Data Storage
+
+The dataset is organized as follows:
+
+- **Images**: Stored in `data/images/wikiart/`, organized by art style subdirectories (e.g., `Abstract_Expressionism`, `Cubism`).
+- **Metadata**: The dataset CSV file is located at `data/images/artemis_dataset_release_v0.csv`.
+
 ## Setup
 
 ```bash
