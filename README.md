@@ -4,8 +4,8 @@ Generate emotional, descriptive captions for artwork images using deep learning.
 
 ## Models
 
-1. **CNN + LSTM**: Custom CNN encoder with LSTM decoder
-2. **Vision Transformer**: Attention-based architecture (to be implemented)
+1. **CNN + LSTM (Approach 1)**: Custom CNN encoder with LSTM decoder
+2. **Vision Transformer (Approach 2)**: Attention-based architecture (to be implemented)
 
 ## Dataset
 
