@@ -6,6 +6,7 @@ import matplotlib.pyplot as plt
 
 from src.preprocessing.preprocessing import load_and_clean_data, create_tf_dataset, save_vectorizer
 from src.approach_2.caption_model import build_vit_caption_model, masked_loss, masked_acc_percent
+from src.approach_2.embeddings import get_tfidf_embeddings, get_pretrained_embeddings
 
 def train_model(
     csv_path,
@@ -17,7 +18,9 @@ def train_model(
     vocab_size=5000,
     max_length=50,
     image_size=(256, 256),
-    use_mixed_precision=True
+    use_mixed_precision=True,
+    embedding_type="learned", # learned, tfidf, glove, word2vec
+    embedding_dim=256
 ):
     # Create output directory
     os.makedirs(output_dir, exist_ok=True)
@@ -43,17 +46,40 @@ def train_model(
     # Save vectorizer
     save_vectorizer(vectorizer, os.path.join(output_dir, "vectorizer.pkl"))
     
-    # 2. Build Model
-    print("Building Vision Transformer Model...")
+    # 2. Prepare Embeddings
+    embedding_matrix = None
+    if embedding_type == "learned":
+        print("Using learned embeddings (default).")
+    elif embedding_type == "tfidf":
+        # Note: TF-IDF requires raw text which we don't easily have in the tf.dataset pipeline here.
+        # For now, we'll use the dataframe's captions.
+        captions = df['utterance'].tolist()
+        embedding_matrix = get_tfidf_embeddings(vectorizer, captions, embedding_dim=embedding_dim, vocab_size=vocab_size) 
+    elif embedding_type == "glove":
+        embedding_matrix = get_pretrained_embeddings(
+            vectorizer, 
+            model_name="glove-wiki-gigaword-100", # 100d is standard small glove
+            embedding_dim=embedding_dim
+        )
+    elif embedding_type == "word2vec":
+        embedding_matrix = get_pretrained_embeddings(
+            vectorizer, 
+            model_name="word2vec-google-news-300", 
+            embedding_dim=embedding_dim
+        )
+    
+    # 3. Build Model
+    print(f"Building Vision Transformer Model with {embedding_type} embeddings...")
     model = build_vit_caption_model(
         input_shape=image_size + (3,),
         vocab_size=vocab_size,
         max_length=max_length - 1, # Input sequence is shifted
         transformer_layers=4,
         num_heads=4,
-        projection_dim=256,
+        projection_dim=embedding_dim, # Use embedding_dim
         ff_dim=512,
-        dropout_rate=0.1
+        dropout_rate=0.1,
+        embedding_matrix=embedding_matrix
     )
     
     # 3. Compile Model

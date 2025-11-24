@@ -39,13 +39,27 @@ The model follows an Encoder-Decoder architecture:
 -   **Data Augmentation**: Random flip, rotation, and contrast adjustments during training.
 -   **Vectorizer Persistence**: The `TextVectorization` vocabulary is saved to disk to ensure consistent tokenization between training and inference.
 -   **Mixed Precision**: Supports `mixed_float16` for faster training on compatible GPUs.
+-   **Embedding Strategies**: Supports multiple embedding types:
+    -   **Learned**: Standard trainable Keras Embedding layer.
+    -   **TF-IDF (LSA)**: Dense vectors reduced from TF-IDF matrices using SVD.
+    -   **Pre-trained**: Supports loading GloVe (`glove-wiki-gigaword-100`) and Word2Vec (`word2vec-google-news-300`) via `gensim`.
 
 ## Usage
 
 ### Training
 To train the model, run:
 ```bash
+# Default (Learned Embeddings)
 python -m src.approach_2.train
+
+# TF-IDF (LSA)
+python -m src.approach_2.train --embedding_type tfidf
+
+# GloVe (Pre-trained)
+python -m src.approach_2.train --embedding_type glove
+
+# Word2Vec (Pre-trained)
+python -m src.approach_2.train --embedding_type word2vec
 ```
 This will:
 1.  Load and preprocess the ArtEmis dataset.

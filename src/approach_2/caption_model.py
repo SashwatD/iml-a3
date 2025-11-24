@@ -117,9 +117,21 @@ class TransformerDecoderBlock(layers.Layer):
         return config
 
 class TokenAndPositionEmbedding(layers.Layer):
-    def __init__(self, maxlen, vocab_size, embed_dim, **kwargs):
+    def __init__(self, maxlen, vocab_size, embed_dim, embedding_matrix=None, **kwargs):
         super().__init__(**kwargs)
-        self.token_emb = layers.Embedding(input_dim=vocab_size, output_dim=embed_dim)
+        self.vocab_size = vocab_size
+        self.embed_dim = embed_dim
+        
+        if embedding_matrix is not None:
+            self.token_emb = layers.Embedding(
+                input_dim=vocab_size, 
+                output_dim=embed_dim,
+                weights=[embedding_matrix],
+                trainable=False # Freeze pre-trained embeddings
+            )
+        else:
+            self.token_emb = layers.Embedding(input_dim=vocab_size, output_dim=embed_dim)
+            
         self.pos_emb = layers.Embedding(input_dim=maxlen, output_dim=embed_dim)
 
     def call(self, x):
@@ -133,8 +145,8 @@ class TokenAndPositionEmbedding(layers.Layer):
         config = super().get_config()
         config.update({
             "maxlen": self.pos_emb.input_dim,
-            "vocab_size": self.token_emb.input_dim,
-            "embed_dim": self.token_emb.output_dim
+            "vocab_size": self.vocab_size,
+            "embed_dim": self.embed_dim
         })
         return config
 
@@ -148,7 +160,8 @@ def build_vit_caption_model(
     vocab_size=5000,
     max_length=50,
     ff_dim=512,
-    dropout_rate=0.1
+    dropout_rate=0.1,
+    embedding_matrix=None # New argument
 ):
     # --- Encoder (ViT) ---
     inputs = layers.Input(shape=input_shape)
@@ -162,7 +175,9 @@ def build_vit_caption_model(
     
     # --- Decoder ---
     caption_inputs = layers.Input(shape=(max_length,), dtype="int64")
-    x = TokenAndPositionEmbedding(max_length, vocab_size, projection_dim)(caption_inputs)
+    x = TokenAndPositionEmbedding(
+        max_length, vocab_size, projection_dim, embedding_matrix=embedding_matrix
+    )(caption_inputs)
     
     for _ in range(transformer_layers):
         x = TransformerDecoderBlock(
