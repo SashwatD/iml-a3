@@ -88,16 +88,12 @@ class TransformerDecoderBlock(layers.Layer):
         self.dropout2 = layers.Dropout(rate)
         self.dropout3 = layers.Dropout(rate)
 
-    def call(self, inputs, encoder_outputs, training=False, mask=None):
-        # Self-attention (causal mask is usually handled by the caller or implicitly if using Sequential, 
-        # but here we might need to pass it. For simplicity in this block, we assume inputs are already masked 
-        # or we rely on the standard Keras masking if passed).
-        # However, for caption generation, we need causal masking.
+    def call(self, inputs, encoder_outputs, training=False, use_causal_mask=False):
+        # Self-attention
+        # If use_causal_mask is True, we let MHA handle it or we construct it.
         
-        # Note: Keras MultiHeadAttention supports 'use_causal_mask' in newer versions, 
-        # or we can pass a boolean mask.
-        
-        attn1 = self.att1(inputs, inputs, attention_mask=mask) 
+        # To be safe and explicit:
+        attn1 = self.att1(inputs, inputs, use_causal_mask=use_causal_mask)
         attn1 = self.dropout1(attn1, training=training)
         out1 = self.layernorm1(inputs + attn1)
         
@@ -168,48 +164,10 @@ def build_vit_caption_model(
     caption_inputs = layers.Input(shape=(max_length,), dtype="int64")
     x = TokenAndPositionEmbedding(max_length, vocab_size, projection_dim)(caption_inputs)
     
-    # Create causal mask
-    # (batch_size, max_length, max_length)
-    # We can use a custom layer or lambda for this if needed, but MHA handles it if we pass use_causal_mask=True
-    # or construct it manually. Let's construct manually for clarity/compatibility.
-    
-    # Actually, Keras MHA `attention_mask` argument:
-    # "Boolean mask of shape (B, T, S)..."
-    # For causal, we want to mask future tokens.
-    
-    # Let's use a simpler approach: The DecoderBlock will take the mask.
-    # But constructing the mask inside the model definition is cleaner.
-    
-    def causal_attention_mask(batch_size, n_dest, n_src, dtype):
-        """
-        Mask the upper half of the dot product matrix in self attention.
-        This prevents flow of information from future tokens to current token.
-        1's in the lower triangle, counting from the lower right corner.
-        """
-        i = tf.range(n_dest)[:, None]
-        j = tf.range(n_src)
-        m = i >= j - n_src + n_dest
-        mask = tf.cast(m, dtype)
-        mask = tf.reshape(mask, [1, n_dest, n_src])
-        mult = tf.concat(
-            [tf.expand_dims(batch_size, -1), tf.constant([1, 1], dtype=tf.int32)], 0
-        )
-        return tf.tile(mask, mult)
-
-    # We will let the MHA layer handle causal masking if we set use_causal_mask=True (TF 2.10+)
-    # Or we can just pass the mask.
-    # Given the environment might vary, let's rely on the custom block logic.
-    # In this implementation, I'll assume the user might want to run this on standard Colab/Local.
-    
-    # To keep it simple and robust:
-    # We will just pass the encoder outputs to the decoder.
-    # The decoder block needs to handle the causal masking internally or we pass it.
-    
-    # Let's iterate the decoder layers
     for _ in range(transformer_layers):
         x = TransformerDecoderBlock(
             projection_dim, num_heads, ff_dim, dropout_rate
-        )(x, encoded_patches, use_causal_mask=True) # Assuming we modify Block to accept this or handle it
+        )(x, encoded_patches, use_causal_mask=True)
 
     # Output
     outputs = layers.Dense(vocab_size)(x)
@@ -217,36 +175,21 @@ def build_vit_caption_model(
     model = models.Model(inputs=[inputs, caption_inputs], outputs=outputs)
     return model
 
-# Re-defining Decoder Block to support use_causal_mask argument properly if passed to call
-# Or we can just use the built-in use_causal_mask of MHA if available.
-# Let's update the TransformerDecoderBlock to be more robust.
+def masked_loss(y_true, y_pred):
+    # Calculate loss while ignoring padding tokens (0)
+    loss_fn = tf.keras.losses.SparseCategoricalCrossentropy(
+        from_logits=True, reduction='none'
+    )
+    mask = tf.math.not_equal(y_true, 0)
+    loss = loss_fn(y_true, y_pred)
+    mask = tf.cast(mask, dtype=loss.dtype)
+    loss *= mask
+    return tf.reduce_sum(loss) / tf.reduce_sum(mask)
 
-class TransformerDecoderBlock(layers.Layer):
-    def __init__(self, embed_dim, num_heads, ff_dim, rate=0.1, **kwargs):
-        super().__init__(**kwargs)
-        self.att1 = layers.MultiHeadAttention(num_heads=num_heads, key_dim=embed_dim)
-        self.att2 = layers.MultiHeadAttention(num_heads=num_heads, key_dim=embed_dim)
-        self.ffn = models.Sequential(
-            [layers.Dense(ff_dim, activation="relu"), layers.Dense(embed_dim),]
-        )
-        self.layernorm1 = layers.LayerNormalization(epsilon=1e-6)
-        self.layernorm2 = layers.LayerNormalization(epsilon=1e-6)
-        self.layernorm3 = layers.LayerNormalization(epsilon=1e-6)
-        self.dropout1 = layers.Dropout(rate)
-        self.dropout2 = layers.Dropout(rate)
-        self.dropout3 = layers.Dropout(rate)
-
-    def call(self, inputs, encoder_outputs, training=False, use_causal_mask=False):
-        # Self-attention
-        attn1 = self.att1(inputs, inputs, use_causal_mask=use_causal_mask) 
-        attn1 = self.dropout1(attn1, training=training)
-        out1 = self.layernorm1(inputs + attn1)
-        
-        # Cross-attention
-        attn2 = self.att2(out1, encoder_outputs)
-        attn2 = self.dropout2(attn2, training=training)
-        out2 = self.layernorm2(out1 + attn2)
-        
-        ffn_output = self.ffn(out2)
-        ffn_output = self.dropout3(ffn_output, training=training)
-        return self.layernorm3(out2 + ffn_output)
+def masked_acc_percent(y_true, y_pred):
+    mask = tf.math.not_equal(y_true, 0)
+    y_pred = tf.argmax(y_pred, axis=-1)
+    y_true = tf.cast(y_true, y_pred.dtype)
+    match = tf.cast(y_true == y_pred, tf.float32)
+    mask = tf.cast(mask, tf.float32)
+    return 100.0 * tf.reduce_sum(match * mask) / tf.reduce_sum(mask)

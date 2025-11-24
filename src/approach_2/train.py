@@ -4,8 +4,8 @@ from tensorflow.keras import mixed_precision
 from tensorflow.keras.callbacks import ModelCheckpoint, EarlyStopping, ReduceLROnPlateau
 import matplotlib.pyplot as plt
 
-from src.preprocessing.preprocessing import load_and_clean_data, create_tf_dataset
-from src.approach_2.caption_model import build_vit_caption_model
+from src.preprocessing.preprocessing import load_and_clean_data, create_tf_dataset, save_vectorizer
+from src.approach_2.caption_model import build_vit_caption_model, masked_loss, masked_acc_percent
 
 def train_model(
     csv_path,
@@ -36,8 +36,12 @@ def train_model(
         image_size=image_size, 
         batch_size=batch_size, 
         vocab_size=vocab_size, 
-        max_length=max_length
+        max_length=max_length,
+        augment=True # Enable augmentation
     )
+    
+    # Save vectorizer
+    save_vectorizer(vectorizer, os.path.join(output_dir, "vectorizer.pkl"))
     
     # 2. Build Model
     print("Building Vision Transformer Model...")
@@ -53,26 +57,6 @@ def train_model(
     )
     
     # 3. Compile Model
-    loss_fn = tf.keras.losses.SparseCategoricalCrossentropy(
-        from_logits=True, reduction='none'
-    )
-    
-    def masked_loss(y_true, y_pred):
-        # Calculate loss while ignoring padding tokens (0)
-        mask = tf.math.not_equal(y_true, 0)
-        loss = loss_fn(y_true, y_pred)
-        mask = tf.cast(mask, dtype=loss.dtype)
-        loss *= mask
-        return tf.reduce_sum(loss) / tf.reduce_sum(mask)
-
-    def masked_accuracy(y_true, y_pred):
-        mask = tf.math.not_equal(y_true, 0)
-        y_pred = tf.argmax(y_pred, axis=-1)
-        y_true = tf.cast(y_true, y_pred.dtype)
-        match = tf.cast(y_true == y_pred, tf.float32)
-        mask = tf.cast(mask, tf.float32)
-        return tf.reduce_sum(match * mask) / tf.reduce_sum(mask)
-
     optimizer = tf.keras.optimizers.Adam(learning_rate=1e-4)
     if use_mixed_precision:
         optimizer = mixed_precision.LossScaleOptimizer(optimizer)
@@ -80,7 +64,7 @@ def train_model(
     model.compile(
         optimizer=optimizer,
         loss=masked_loss,
-        metrics=[masked_accuracy]
+        metrics=[masked_acc_percent]
     )
     
     model.summary()
@@ -121,17 +105,13 @@ def train_model(
     # Save final model
     model.save_weights(os.path.join(output_dir, "final_model.weights.h5"))
     
-    # Save vectorizer config/vocabulary if needed (custom logic required usually, 
-    # or pickle the vectorizer configuration)
-    # For now, we rely on the script to recreate it or save vocabulary separately.
-    
     return history, model, vectorizer
 
 def plot_history(history, output_dir):
     loss = history.history['loss']
     val_loss = history.history['val_loss']
-    acc = history.history['masked_accuracy']
-    val_acc = history.history['val_masked_accuracy']
+    acc = history.history['masked_acc_percent']
+    val_acc = history.history['val_masked_acc_percent']
     
     epochs = range(1, len(loss) + 1)
     
@@ -161,8 +141,8 @@ if __name__ == "__main__":
         history, model, vectorizer = train_model(
             CSV_PATH, 
             IMG_DIR, 
-            sample_size=1000, # Start small for testing
-            epochs=5,
+            sample_size=5000, # Start small for testing
+            epochs=30,
             use_mixed_precision=False
         )
         plot_history(history, "models/approach-2")
