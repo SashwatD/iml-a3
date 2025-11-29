@@ -122,13 +122,13 @@ def train_model(
             filepath=os.path.join(output_dir, "best_model.weights.h5"),
             save_best_only=True,
             save_weights_only=True,
-            monitor="val_loss",
-            mode="min",
+            monitor="val_masked_acc_percent",
+            mode="max",
             verbose=1
         ),
         EarlyStopping(
             monitor="val_loss",
-            patience=5,
+            patience=8,
             restore_best_weights=True,
             verbose=1
         ),
