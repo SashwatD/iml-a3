@@ -1,0 +1,27 @@
+#!/bin/bash
+#PBS -N stma
+#PBS -q gpu
+#PBS -l select=1:ncpus=40:ngpus=1:host=compute3
+#PBS -l walltime=24:00:00
+#PBS -j oe
+#PBS -o output_log.txt
+
+# --- Body of the Job ---
+
+# 1. Load Modules
+module load libs/libblas-3.10.0
+module load libs/liblapack-3.10.1
+module load compiler/anaconda3
+module load compiler/cuda-11.2
+
+# 2. Activate Environment
+source /apps/miniconda3/bin/activate
+conda activate specialenv
+
+# 3. Change to Project Directory
+cd ~/iml/pipelines/approach_2/flash_attention/
+
+# 4. Run the Training Script
+echo "Starting training..."
+python3 train.py
+echo "Training complete."
