@@ -13,7 +13,9 @@ def build_caption_decoder(vocab_size,
                          embedding_dim=256, 
                          lstm_units=256,
                          max_length=50,
-                         dropout_rate=0.3):
+                         dropout_rate=0.3,
+                         embedding_matrix=None,
+                         trainable_embeddings=True):
     
     # Input 1: Image features from CNN (256D)
     image_input = Input(shape=(embedding_dim,), name='image_features')
@@ -25,12 +27,25 @@ def build_caption_decoder(vocab_size,
     image_features = RepeatVector(max_length)(image_input)
     
     # Word embeddings: convert word indices to dense vectors
-    word_embeddings = Embedding(
-        input_dim=vocab_size,
-        output_dim=embedding_dim,
-        mask_zero=True,  # Ignore padding
-        name='word_embedding'
-    )(caption_input)
+    # Can be initialized with pre-trained weights or trained from scratch
+    if embedding_matrix is not None:
+        # Use pre-trained embeddings (TF-IDF, GloVe, Word2Vec)
+        word_embeddings = Embedding(
+            input_dim=vocab_size,
+            output_dim=embedding_dim,
+            weights=[embedding_matrix],  # Initialize with pre-trained
+            trainable=trainable_embeddings,  # Usually False for pre-trained
+            mask_zero=True,
+            name='word_embedding'
+        )(caption_input)
+    else:
+        # Learn embeddings from scratch (random initialization)
+        word_embeddings = Embedding(
+            input_dim=vocab_size,
+            output_dim=embedding_dim,
+            mask_zero=True,
+            name='word_embedding'
+        )(caption_input)
     
     # Combine image features with word embeddings
     combined = Concatenate(axis=-1, name='combine')([image_features, word_embeddings])
@@ -116,4 +131,4 @@ if __name__ == "__main__":
     print(f"Caption input: {dummy_caption.shape}")
     print(f"Predictions: {predictions.shape}")
     print(f"Total parameters: {decoder.count_params():,}")
-    print("✓ LSTM Decoder working correctly")
+    print("[SUCCESS] LSTM Decoder working correctly")

@@ -29,8 +29,10 @@ models/*.h5
 models/*.pt
 models/*.keras
 models/*.weights.h5
-models/**/*.weights.h5
+models/**/*.h5
+models/**/*.keras
 models/**/*.pt
+models/**/*.weights.h5
 
 # Results and Outputs
 results/
