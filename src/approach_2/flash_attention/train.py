@@ -13,14 +13,14 @@ def train_model(
     image_dir,
     output_dir="models/approach-2/flash_attention",
     sample_size=None,
-    batch_size=32,
-    epochs=20,
-    vocab_size=5000,
+    batch_size=128,
+    epochs=40,
+    vocab_size=10000,
     max_length=50,
     image_size=(256, 256),
     use_mixed_precision=True,
     embedding_type="learned", # learned, tfidf, glove, word2vec
-    embedding_dim=256
+    embedding_dim=512
 ):
     # Create output directory
     os.makedirs(output_dir, exist_ok=True)
@@ -74,16 +74,36 @@ def train_model(
         input_shape=image_size + (3,),
         vocab_size=vocab_size,
         max_length=max_length - 1, # Input sequence is shifted
-        transformer_layers=4,
-        num_heads=4,
+        transformer_layers=6,
+        num_heads=8,
         projection_dim=embedding_dim, # Use embedding_dim
-        ff_dim=512,
-        dropout_rate=0.1,
+        ff_dim=2048,
+        dropout_rate=0.2,
         embedding_matrix=embedding_matrix
     )
     
+    # Crucial for Transformers: Linear Warmup -> Cosine Decay
+    
+    total_steps = num_train_steps * epochs
+    warmup_steps = int(0.1 * total_steps) # 10% warmup
+    
+    learning_rate_schedule = tf.keras.optimizers.schedules.CosineDecay(
+        initial_learning_rate=3e-4,    # Peak LR
+        decay_steps=total_steps,
+        alpha=0.01,                    # Minimum LR (1% of peak)
+        warmup_target=3e-4,
+        warmup_steps=warmup_steps
+    )
+
     # 3. Compile Model
-    optimizer = tf.keras.optimizers.Adam(learning_rate=1e-4)
+    optimizer = tf.keras.optimizers.AdamW(
+        learning_rate=learning_rate_schedule,
+        weight_decay=0.05,
+        beta_1=0.9,
+        beta_2=0.95,  # Slightly lower beta_2 for stability
+        epsilon=1e-6
+    )
+
     if use_mixed_precision:
         optimizer = mixed_precision.LossScaleOptimizer(optimizer)
         

@@ -1,5 +1,8 @@
 import tensorflow as tf
-from tensorflow.keras import layers, models
+from tensorflow.keras import layers, models, mixed_precision
+
+policy = mixed_precision.Policy('mixed_float16')
+mixed_precision.set_global_policy(policy)
 
 class PatchCreation(layers.Layer):
     def __init__(self, patch_size, **kwargs):
@@ -43,12 +46,14 @@ class PatchEncoder(layers.Layer):
         config.update({"num_patches": self.num_patches, "projection_dim": self.projection.units})
         return config
 
+class TransformerEncoderBlock(layers.Layer):
     def __init__(self, embed_dim, num_heads, ff_dim, rate=0.1, **kwargs):
         super().__init__(**kwargs)
         try:
-            self.att = layers.MultiHeadAttention(num_heads=num_heads, key_dim=embed_dim, use_flash_attention=True)
+            self.att = layers.MultiHeadAttention(
+                num_heads=num_heads, key_dim=embed_dim, use_flash_attention=True
+            )
         except (TypeError, ValueError):
-            print("Flash Attention not supported. Using standard Attention.")
             self.att = layers.MultiHeadAttention(num_heads=num_heads, key_dim=embed_dim)
             
         self.ffn = models.Sequential(
@@ -63,6 +68,7 @@ class PatchEncoder(layers.Layer):
         attn_output = self.att(inputs, inputs)
         attn_output = self.dropout1(attn_output, training=training)
         out1 = self.layernorm1(inputs + attn_output)
+        
         ffn_output = self.ffn(out1)
         ffn_output = self.dropout2(ffn_output, training=training)
         return self.layernorm2(out1 + ffn_output)
@@ -84,7 +90,6 @@ class TransformerDecoderBlock(layers.Layer):
             self.att1 = layers.MultiHeadAttention(num_heads=num_heads, key_dim=embed_dim, use_flash_attention=True)
             self.att2 = layers.MultiHeadAttention(num_heads=num_heads, key_dim=embed_dim, use_flash_attention=True)
         except (TypeError, ValueError):
-            print("Flash Attention not supported. Using standard Attention.")
             self.att1 = layers.MultiHeadAttention(num_heads=num_heads, key_dim=embed_dim)
             self.att2 = layers.MultiHeadAttention(num_heads=num_heads, key_dim=embed_dim)
             
@@ -98,20 +103,19 @@ class TransformerDecoderBlock(layers.Layer):
         self.dropout2 = layers.Dropout(rate)
         self.dropout3 = layers.Dropout(rate)
 
-    def call(self, inputs, encoder_outputs, training=False, use_causal_mask=False):
-        # Self-attention
-        # If use_causal_mask is True, we let MHA handle it or we construct it.
-        
-        # To be safe and explicit:
-        attn1 = self.att1(inputs, inputs, use_causal_mask=use_causal_mask)
+    def call(self, inputs, encoder_outputs, training=False):
+        # 1. Masked Self-Attention (Causal)
+        # use_causal_mask=True ensures position T cannot see T+1
+        attn1 = self.att1(inputs, inputs, use_causal_mask=True)
         attn1 = self.dropout1(attn1, training=training)
         out1 = self.layernorm1(inputs + attn1)
         
-        # Cross-attention
+        # 2. Cross-Attention (Query=Text, Key/Value=Image)
         attn2 = self.att2(out1, encoder_outputs)
         attn2 = self.dropout2(attn2, training=training)
         out2 = self.layernorm2(out1 + attn2)
         
+        # 3. Feed Forward Network
         ffn_output = self.ffn(out2)
         ffn_output = self.dropout3(ffn_output, training=training)
         return self.layernorm3(out2 + ffn_output)
@@ -127,21 +131,9 @@ class TransformerDecoderBlock(layers.Layer):
         return config
 
 class TokenAndPositionEmbedding(layers.Layer):
-    def __init__(self, maxlen, vocab_size, embed_dim, embedding_matrix=None, **kwargs):
+    def __init__(self, maxlen, vocab_size, embed_dim, **kwargs):
         super().__init__(**kwargs)
-        self.vocab_size = vocab_size
-        self.embed_dim = embed_dim
-        
-        if embedding_matrix is not None:
-            self.token_emb = layers.Embedding(
-                input_dim=vocab_size, 
-                output_dim=embed_dim,
-                weights=[embedding_matrix],
-                trainable=False # Freeze pre-trained embeddings
-            )
-        else:
-            self.token_emb = layers.Embedding(input_dim=vocab_size, output_dim=embed_dim)
-            
+        self.token_emb = layers.Embedding(input_dim=vocab_size, output_dim=embed_dim)
         self.pos_emb = layers.Embedding(input_dim=maxlen, output_dim=embed_dim)
 
     def call(self, x):
@@ -155,26 +147,26 @@ class TokenAndPositionEmbedding(layers.Layer):
         config = super().get_config()
         config.update({
             "maxlen": self.pos_emb.input_dim,
-            "vocab_size": self.vocab_size,
-            "embed_dim": self.embed_dim
+            "vocab_size": self.token_emb.input_dim,
+            "embed_dim": self.token_emb.output_dim
         })
         return config
 
 def build_vit_caption_model(
-    input_shape=(256, 256, 3),
+    input_shape=(256, 256, 3), # ArtEmis image size
     patch_size=16,
-    num_patches=256, # (256//16)**2
-    projection_dim=256,
-    num_heads=4,
-    transformer_layers=4,
-    vocab_size=5000,
-    max_length=50,
-    ff_dim=512,
-    dropout_rate=0.1,
-    embedding_matrix=None # New argument
+    num_patches=256,           # (256/16)^2
+    vocab_size=10000,          # Approx for ArtEmis
+    max_length=40,             # Max caption length
+    projection_dim=512,        # Model Dimension (Best for training from scratch)
+    num_heads=8,               # Standard Attention Heads
+    transformer_layers=6,      # 6 Layers is the sweet spot for V100/80k Data
+    ff_dim=2048,               # 4x Projection Dim
+    dropout_rate=0.1
 ):
-    # --- Encoder (ViT) ---
-    inputs = layers.Input(shape=input_shape)
+    
+    # --- Vision Encoder ---
+    inputs = layers.Input(shape=input_shape, name="image_input")
     patches = PatchCreation(patch_size)(inputs)
     encoded_patches = PatchEncoder(num_patches, projection_dim)(patches)
 
@@ -183,21 +175,25 @@ def build_vit_caption_model(
             projection_dim, num_heads, ff_dim, dropout_rate
         )(encoded_patches)
     
-    # --- Decoder ---
-    caption_inputs = layers.Input(shape=(max_length,), dtype="int64")
+    # --- Text Decoder ---
+    caption_inputs = layers.Input(shape=(max_length,), dtype="int64", name="text_input")
     x = TokenAndPositionEmbedding(
-        max_length, vocab_size, projection_dim, embedding_matrix=embedding_matrix
+        max_length, vocab_size, projection_dim
     )(caption_inputs)
     
+    # Stack Decoder Layers
     for _ in range(transformer_layers):
         x = TransformerDecoderBlock(
             projection_dim, num_heads, ff_dim, dropout_rate
-        )(x, encoded_patches, use_causal_mask=True)
+        )(x, encoded_patches) # Pass image features here
 
-    # Output
-    outputs = layers.Dense(vocab_size)(x)
+    # Final Output
+    outputs = layers.Dense(vocab_size, name="caption_output")(x)
     
-    model = models.Model(inputs=[inputs, caption_inputs], outputs=outputs)
+    # Cast outputs back to float32 for stability if using mixed_precision
+    outputs = layers.Activation('linear', dtype='float32')(outputs)
+
+    model = models.Model(inputs=[inputs, caption_inputs], outputs=outputs, name="ViT_Caption_Generator")
     return model
 
 def masked_loss(y_true, y_pred):
@@ -218,3 +214,4 @@ def masked_acc_percent(y_true, y_pred):
     match = tf.cast(y_true == y_pred, tf.float32)
     mask = tf.cast(mask, tf.float32)
     return 100.0 * tf.reduce_sum(match * mask) / tf.reduce_sum(mask)
+    
