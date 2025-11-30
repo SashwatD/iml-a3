@@ -1,0 +1,71 @@
+========================================
+HOW TO TRAIN ON GOOGLE COLAB (T4 GPU)
+========================================
+
+STEP 1: Prepare Project Zip
+----------------------------
+On your local machine:
+1. Open PowerShell in project folder
+2. Run: Compress-Archive -Path * -DestinationPath iml-a3.zip
+   (This creates iml-a3.zip with all your files)
+
+STEP 2: Upload to Colab
+------------------------
+1. Go to: https://colab.research.google.com/
+2. Click "Upload" and select: colab_training.ipynb
+3. Runtime → Change runtime type → T4 GPU → Save
+
+STEP 3: Run Training
+--------------------
+Run cells in order (Shift+Enter):
+
+Cell 1: Check GPU
+Cell 2: (Skip this header)
+Cell 3: Upload iml-a3.zip when prompted
+Cell 4: (Skip - only if using Drive)
+Cell 5: (Skip - only if using GitHub)
+Cell 6: (Skip this header)
+Cell 7: Install dependencies (~2 min)
+Cell 8: (Skip this header)
+Cell 9: Verify everything loaded
+Cell 10: (Skip this header)
+Cell 11: START TRAINING (~2-3 hours on T4)
+Cell 12: (Skip this header)
+Cell 13: Monitor progress (run anytime)
+Cell 14: (Skip this header)
+Cell 15: Download results when done
+
+STEP 4: Get Results
+-------------------
+After training completes:
+1. Run Cell 15 to download training_results.zip
+2. Extract on your local machine
+3. Copy contents to: models/approach_1_2/
+
+TROUBLESHOOTING
+---------------
+Q: "No GPU available"?
+A: Runtime → Change runtime type → T4 GPU → Save
+
+Q: "Module not found"?
+A: Make sure you zipped the CONTENTS of iml-a3, not the folder itself
+
+Q: Training too slow?
+A: Colab T4 should be ~10x faster than CPU. Check GPU is active (Cell 1)
+
+Q: Disconnected?
+A: Colab disconnects after ~12 hours or if idle. Training should finish in 2-3 hours.
+
+EXPECTED RESULTS
+----------------
+Baseline (CPU, 128x128):  ~9% accuracy
+Improved (T4, 224x224):   20-30% accuracy target
+Training time on T4:      2-3 hours
+Model size:               122M parameters
+
+After training, compare:
+- models/approach_1_2/improved_cnn_lstm_colab_training.log
+- With your baseline results
+
+========================================
+

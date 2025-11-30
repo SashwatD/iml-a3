@@ -1,0 +1,29 @@
+{
+  "model_name": "improved_cnn_lstm_learned",
+  "embedding_type": "learned",
+  "batch_size": 16,
+  "epochs": 30,
+  "learning_rate": 0.001,
+  "embedding_dim": 512,
+  "lstm_units": 512,
+  "dropout_rate": 0.5,
+  "image_size": [
+    224,
+    224
+  ],
+  "vocab_size": 5000,
+  "max_length": 50,
+  "train_samples": 12051,
+  "val_samples": 2542,
+  "improvements": [
+    "VGG-style CNN (13 layers)",
+    "512 embedding dim",
+    "512 LSTM units",
+    "0.5 dropout",
+    "224x224 images",
+    "Gradient clipping",
+    "LR warmup + decay",
+    "Data augmentation"
+  ],
+  "timestamp": "2025-11-29T21:42:54.520336"
+}
