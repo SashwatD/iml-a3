@@ -1,8 +1,10 @@
 # ArtEmis Image Caption Generation - Dependencies
 
-# Deep Learning
-tensorflow>=2.13.0
-keras>=2.13.0
+# Deep Learning (PyTorch)
+torch>=2.0.0
+torchvision>=0.15.0
+transformers>=4.30.0
+accelerate>=0.20.0
 
 # Data Processing
 pandas>=2.0.0
@@ -24,4 +26,3 @@ ipywidgets>=8.1.0
 
 # Utilities
 tqdm>=4.65.0
-h5py>=3.9.0

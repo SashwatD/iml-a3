@@ -7,19 +7,19 @@ from tqdm import tqdm
 import matplotlib.pyplot as plt
 
 from src.utils.dataset_torch import get_loader, save_vocab
-from src.approach_2.flash_attention.caption_model import FlashViTCaptionModel
+from src.approach_2.pretrained.caption_model import PretrainedViTCaptionModel
 from src.approach_2.embeddings import get_tfidf_embeddings, get_pretrained_embeddings
 
 def train_model(
     csv_path,
     image_dir,
-    output_dir="models/approach-2-flash",
+    output_dir="models/approach-2-pretrained",
     epochs=20,
     batch_size=32,
     learning_rate=1e-4,
-    image_size=(256, 256),
+    image_size=(224, 224), # Fixed for ViT
     vocab_size=5000,
-    embedding_dim=256,
+    embedding_dim=512, # Decoder dim
     embedding_type="tfidf"
 ):
     os.makedirs(output_dir, exist_ok=True)
@@ -27,9 +27,13 @@ def train_model(
     print(f"Using device: {device}")
 
     # Transforms
+    # ViT expects normalized images. 
+    # ImageNet mean/std: mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]
+    # But google/vit-base-patch16-224 uses mean=0.5, std=0.5
     transform = transforms.Compose([
         transforms.Resize(image_size),
         transforms.ToTensor(), # [0, 1]
+        transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5]) # [-1, 1]
     ])
 
     # Load Data
@@ -59,8 +63,7 @@ def train_model(
         embedding_matrix = get_pretrained_embeddings(vocab_list, "word2vec-google-news-300", embedding_dim)
 
     # Model
-    model = FlashViTCaptionModel(
-        image_size=image_size[0],
+    model = PretrainedViTCaptionModel(
         vocab_size=len(vocab),
         embed_dim=embedding_dim,
         embedding_matrix=embedding_matrix
@@ -98,10 +101,8 @@ def train_model(
         loss_history.append(epoch_loss)
         print(f"Epoch {epoch+1} Loss: {epoch_loss:.4f}")
         
-        # Save checkpoint
         torch.save(model.state_dict(), os.path.join(output_dir, f"model_epoch_{epoch+1}.pth"))
 
-    # Plot history
     plt.plot(loss_history)
     plt.title("Training Loss")
     plt.xlabel("Epoch")

@@ -1,217 +1,156 @@
-import tensorflow as tf
-from tensorflow.keras import layers, models, mixed_precision
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
 
-policy = mixed_precision.Policy('mixed_float16')
-mixed_precision.set_global_policy(policy)
-
-class PatchCreation(layers.Layer):
-    def __init__(self, patch_size, **kwargs):
-        super().__init__(**kwargs)
+class PatchEmbedding(nn.Module):
+    def __init__(self, image_size=256, patch_size=16, in_channels=3, embed_dim=256):
+        super().__init__()
+        self.image_size = image_size
         self.patch_size = patch_size
+        self.num_patches = (image_size // patch_size) ** 2
+        
+        self.projection = nn.Conv2d(in_channels, embed_dim, kernel_size=patch_size, stride=patch_size)
+        self.position_embedding = nn.Parameter(torch.randn(1, self.num_patches, embed_dim))
 
-    def call(self, images):
-        batch_size = tf.shape(images)[0]
-        patches = tf.image.extract_patches(
-            images=images,
-            sizes=[1, self.patch_size, self.patch_size, 1],
-            strides=[1, self.patch_size, self.patch_size, 1],
-            rates=[1, 1, 1, 1],
-            padding="VALID",
+    def forward(self, x):
+        x = self.projection(x)
+        x = x.flatten(2)
+        x = x.transpose(1, 2)
+        x = x + self.position_embedding
+        return x
+
+class FlashAttentionBlock(nn.Module):
+    def __init__(self, embed_dim, num_heads, ff_dim, dropout=0.1):
+        super().__init__()
+        self.num_heads = num_heads
+        self.embed_dim = embed_dim
+        self.head_dim = embed_dim // num_heads
+        assert self.head_dim * num_heads == embed_dim, "embed_dim must be divisible by num_heads"
+
+        self.q_proj = nn.Linear(embed_dim, embed_dim)
+        self.k_proj = nn.Linear(embed_dim, embed_dim)
+        self.v_proj = nn.Linear(embed_dim, embed_dim)
+        self.out_proj = nn.Linear(embed_dim, embed_dim)
+        
+        self.norm1 = nn.LayerNorm(embed_dim)
+        self.norm2 = nn.LayerNorm(embed_dim)
+        
+        self.ffn = nn.Sequential(
+            nn.Linear(embed_dim, ff_dim),
+            nn.ReLU(),
+            nn.Linear(ff_dim, embed_dim)
         )
-        patch_dims = patches.shape[-1]
-        patches = tf.reshape(patches, [batch_size, -1, patch_dims])
-        return patches
-    
-    def get_config(self):
-        config = super().get_config()
-        config.update({"patch_size": self.patch_size})
-        return config
+        self.dropout = nn.Dropout(dropout)
 
-class PatchEncoder(layers.Layer):
-    def __init__(self, num_patches, projection_dim, **kwargs):
-        super().__init__(**kwargs)
-        self.num_patches = num_patches
-        self.projection = layers.Dense(units=projection_dim)
-        self.position_embedding = layers.Embedding(
-            input_dim=num_patches, output_dim=projection_dim
-        )
-
-    def call(self, patch):
-        positions = tf.range(start=0, limit=self.num_patches, delta=1)
-        encoded = self.projection(patch) + self.position_embedding(positions)
-        return encoded
-    
-    def get_config(self):
-        config = super().get_config()
-        config.update({"num_patches": self.num_patches, "projection_dim": self.projection.units})
-        return config
-
-class TransformerEncoderBlock(layers.Layer):
-    def __init__(self, embed_dim, num_heads, ff_dim, rate=0.1, **kwargs):
-        super().__init__(**kwargs)
-        try:
-            self.att = layers.MultiHeadAttention(
-                num_heads=num_heads, key_dim=embed_dim, use_flash_attention=True
-            )
-        except (TypeError, ValueError):
-            self.att = layers.MultiHeadAttention(num_heads=num_heads, key_dim=embed_dim)
+    def forward(self, x, context=None, is_causal=False):
+        # x: (B, L, E)
+        # context: (B, S, E) - if None, self-attention
+        
+        B, L, E = x.shape
+        residual = x
+        x = self.norm1(x)
+        
+        q = self.q_proj(x).view(B, L, self.num_heads, self.head_dim).transpose(1, 2)
+        
+        if context is None:
+            k = self.k_proj(x).view(B, L, self.num_heads, self.head_dim).transpose(1, 2)
+            v = self.v_proj(x).view(B, L, self.num_heads, self.head_dim).transpose(1, 2)
+        else:
+            S = context.shape[1]
+            k = self.k_proj(context).view(B, S, self.num_heads, self.head_dim).transpose(1, 2)
+            v = self.v_proj(context).view(B, S, self.num_heads, self.head_dim).transpose(1, 2)
             
-        self.ffn = models.Sequential(
-            [layers.Dense(ff_dim, activation="relu"), layers.Dense(embed_dim),]
-        )
-        self.layernorm1 = layers.LayerNormalization(epsilon=1e-6)
-        self.layernorm2 = layers.LayerNormalization(epsilon=1e-6)
-        self.dropout1 = layers.Dropout(rate)
-        self.dropout2 = layers.Dropout(rate)
-
-    def call(self, inputs, training=False):
-        attn_output = self.att(inputs, inputs)
-        attn_output = self.dropout1(attn_output, training=training)
-        out1 = self.layernorm1(inputs + attn_output)
+        # Flash Attention
+        # scaled_dot_product_attention handles is_causal automatically if supported
+        # It expects (B, H, L, D)
+        attn_output = F.scaled_dot_product_attention(q, k, v, is_causal=is_causal, dropout_p=self.dropout.p if self.training else 0.0)
         
-        ffn_output = self.ffn(out1)
-        ffn_output = self.dropout2(ffn_output, training=training)
-        return self.layernorm2(out1 + ffn_output)
-    
-    def get_config(self):
-        config = super().get_config()
-        config.update({
-            "embed_dim": self.att.key_dim,
-            "num_heads": self.att.num_heads,
-            "ff_dim": self.ffn.layers[0].units,
-            "rate": self.dropout1.rate
-        })
-        return config
+        attn_output = attn_output.transpose(1, 2).contiguous().view(B, L, E)
+        attn_output = self.out_proj(attn_output)
+        attn_output = self.dropout(attn_output)
+        
+        x = residual + attn_output
+        
+        # FFN
+        residual = x
+        x = self.norm2(x)
+        x = self.ffn(x)
+        x = self.dropout(x)
+        x = residual + x
+        
+        return x
 
-class TransformerDecoderBlock(layers.Layer):
-    def __init__(self, embed_dim, num_heads, ff_dim, rate=0.1, **kwargs):
-        super().__init__(**kwargs)
-        try:
-            self.att1 = layers.MultiHeadAttention(num_heads=num_heads, key_dim=embed_dim, use_flash_attention=True)
-            self.att2 = layers.MultiHeadAttention(num_heads=num_heads, key_dim=embed_dim, use_flash_attention=True)
-        except (TypeError, ValueError):
-            self.att1 = layers.MultiHeadAttention(num_heads=num_heads, key_dim=embed_dim)
-            self.att2 = layers.MultiHeadAttention(num_heads=num_heads, key_dim=embed_dim)
+class FlashDecoderBlock(nn.Module):
+    def __init__(self, embed_dim, num_heads, ff_dim, dropout=0.1):
+        super().__init__()
+        self.self_attn = FlashAttentionBlock(embed_dim, num_heads, ff_dim, dropout)
+        self.cross_attn = FlashAttentionBlock(embed_dim, num_heads, ff_dim, dropout)
+
+    def forward(self, x, encoder_outputs):
+        # Self Attention (Causal)
+        x = self.self_attn(x, is_causal=True)
+        # Cross Attention
+        x = self.cross_attn(x, context=encoder_outputs, is_causal=False)
+        return x
+
+class FlashViTCaptionModel(nn.Module):
+    def __init__(
+        self, 
+        image_size=256, 
+        patch_size=16, 
+        vocab_size=5000, 
+        embed_dim=256, 
+        num_heads=4, 
+        num_encoder_layers=4, 
+        num_decoder_layers=4, 
+        ff_dim=512, 
+        dropout=0.1,
+        max_length=50,
+        embedding_matrix=None
+    ):
+        super().__init__()
+        
+        # Encoder (Standard ViT, can also use Flash Attention here if desired)
+        self.patch_embed = PatchEmbedding(image_size, patch_size, embed_dim=embed_dim)
+        # For simplicity, using standard encoder blocks or flash encoder blocks
+        # Let's use FlashAttentionBlock for encoder too
+        self.encoder_layers = nn.ModuleList([
+            FlashAttentionBlock(embed_dim, num_heads, ff_dim, dropout)
+            for _ in range(num_encoder_layers)
+        ])
+        
+        # Decoder
+        self.token_emb = nn.Embedding(vocab_size, embed_dim)
+        if embedding_matrix is not None:
+             self.token_emb.weight = nn.Parameter(torch.tensor(embedding_matrix, dtype=torch.float32))
+             self.token_emb.weight.requires_grad = False
+             
+        self.pos_emb = nn.Embedding(max_length, embed_dim)
+        self.decoder_layers = nn.ModuleList([
+            FlashDecoderBlock(embed_dim, num_heads, ff_dim, dropout)
+            for _ in range(num_decoder_layers)
+        ])
+        
+        self.fc_out = nn.Linear(embed_dim, vocab_size)
+        self.dropout = nn.Dropout(dropout)
+        self.max_length = max_length
+
+    def forward(self, images, captions):
+        # Encoder
+        enc_out = self.patch_embed(images)
+        for layer in self.encoder_layers:
+            enc_out = layer(enc_out, is_causal=False)
             
-        self.ffn = models.Sequential(
-            [layers.Dense(ff_dim, activation="relu"), layers.Dense(embed_dim),]
-        )
-        self.layernorm1 = layers.LayerNormalization(epsilon=1e-6)
-        self.layernorm2 = layers.LayerNormalization(epsilon=1e-6)
-        self.layernorm3 = layers.LayerNormalization(epsilon=1e-6)
-        self.dropout1 = layers.Dropout(rate)
-        self.dropout2 = layers.Dropout(rate)
-        self.dropout3 = layers.Dropout(rate)
-
-    def call(self, inputs, encoder_outputs, training=False):
-        # 1. Masked Self-Attention (Causal)
-        # use_causal_mask=True ensures position T cannot see T+1
-        attn1 = self.att1(inputs, inputs, use_causal_mask=True)
-        attn1 = self.dropout1(attn1, training=training)
-        out1 = self.layernorm1(inputs + attn1)
+        # Decoder
+        B, SeqLen = captions.shape
+        positions = torch.arange(0, SeqLen).unsqueeze(0).repeat(B, 1).to(captions.device)
         
-        # 2. Cross-Attention (Query=Text, Key/Value=Image)
-        attn2 = self.att2(out1, encoder_outputs)
-        attn2 = self.dropout2(attn2, training=training)
-        out2 = self.layernorm2(out1 + attn2)
+        tgt_emb = self.token_emb(captions) + self.pos_emb(positions)
+        tgt_emb = self.dropout(tgt_emb)
         
-        # 3. Feed Forward Network
-        ffn_output = self.ffn(out2)
-        ffn_output = self.dropout3(ffn_output, training=training)
-        return self.layernorm3(out2 + ffn_output)
-
-    def get_config(self):
-        config = super().get_config()
-        config.update({
-            "embed_dim": self.att1.key_dim,
-            "num_heads": self.att1.num_heads,
-            "ff_dim": self.ffn.layers[0].units,
-            "rate": self.dropout1.rate
-        })
-        return config
-
-class TokenAndPositionEmbedding(layers.Layer):
-    def __init__(self, maxlen, vocab_size, embed_dim, **kwargs):
-        super().__init__(**kwargs)
-        self.token_emb = layers.Embedding(input_dim=vocab_size, output_dim=embed_dim)
-        self.pos_emb = layers.Embedding(input_dim=maxlen, output_dim=embed_dim)
-
-    def call(self, x):
-        maxlen = tf.shape(x)[-1]
-        positions = tf.range(start=0, limit=maxlen, delta=1)
-        positions = self.pos_emb(positions)
-        x = self.token_emb(x)
-        return x + positions
-    
-    def get_config(self):
-        config = super().get_config()
-        config.update({
-            "maxlen": self.pos_emb.input_dim,
-            "vocab_size": self.token_emb.input_dim,
-            "embed_dim": self.token_emb.output_dim
-        })
-        return config
-
-def build_vit_caption_model(
-    input_shape=(256, 256, 3), # ArtEmis image size
-    patch_size=16,
-    num_patches=256,           # (256/16)^2
-    vocab_size=10000,          # Approx for ArtEmis
-    max_length=40,             # Max caption length
-    projection_dim=512,        # Model Dimension (Best for training from scratch)
-    num_heads=8,               # Standard Attention Heads
-    transformer_layers=6,      # 6 Layers is the sweet spot for V100/80k Data
-    ff_dim=2048,               # 4x Projection Dim
-    dropout_rate=0.1
-):
-    
-    # --- Vision Encoder ---
-    inputs = layers.Input(shape=input_shape, name="image_input")
-    patches = PatchCreation(patch_size)(inputs)
-    encoded_patches = PatchEncoder(num_patches, projection_dim)(patches)
-
-    for _ in range(transformer_layers):
-        encoded_patches = TransformerEncoderBlock(
-            projection_dim, num_heads, ff_dim, dropout_rate
-        )(encoded_patches)
-    
-    # --- Text Decoder ---
-    caption_inputs = layers.Input(shape=(max_length,), dtype="int64", name="text_input")
-    x = TokenAndPositionEmbedding(
-        max_length, vocab_size, projection_dim
-    )(caption_inputs)
-    
-    # Stack Decoder Layers
-    for _ in range(transformer_layers):
-        x = TransformerDecoderBlock(
-            projection_dim, num_heads, ff_dim, dropout_rate
-        )(x, encoded_patches) # Pass image features here
-
-    # Final Output
-    outputs = layers.Dense(vocab_size, name="caption_output")(x)
-    
-    # Cast outputs back to float32 for stability if using mixed_precision
-    outputs = layers.Activation('linear', dtype='float32')(outputs)
-
-    model = models.Model(inputs=[inputs, caption_inputs], outputs=outputs, name="ViT_Caption_Generator")
-    return model
-
-def masked_loss(y_true, y_pred):
-    # Calculate loss while ignoring padding tokens (0)
-    loss_fn = tf.keras.losses.SparseCategoricalCrossentropy(
-        from_logits=True, reduction='none'
-    )
-    mask = tf.math.not_equal(y_true, 0)
-    loss = loss_fn(y_true, y_pred)
-    mask = tf.cast(mask, dtype=loss.dtype)
-    loss *= mask
-    return tf.reduce_sum(loss) / tf.reduce_sum(mask)
-
-def masked_acc_percent(y_true, y_pred):
-    mask = tf.math.not_equal(y_true, 0)
-    y_pred = tf.argmax(y_pred, axis=-1)
-    y_true = tf.cast(y_true, y_pred.dtype)
-    match = tf.cast(y_true == y_pred, tf.float32)
-    mask = tf.cast(mask, tf.float32)
-    return 100.0 * tf.reduce_sum(match * mask) / tf.reduce_sum(mask)
-    
+        dec_out = tgt_emb
+        for layer in self.decoder_layers:
+            dec_out = layer(dec_out, enc_out)
+            
+        output = self.fc_out(dec_out)
+        return output

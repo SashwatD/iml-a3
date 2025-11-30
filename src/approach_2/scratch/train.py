@@ -7,13 +7,13 @@ from tqdm import tqdm
 import matplotlib.pyplot as plt
 
 from src.utils.dataset_torch import get_loader, save_vocab
-from src.approach_2.flash_attention.caption_model import FlashViTCaptionModel
+from src.approach_2.scratch.caption_model import ViTCaptionModel
 from src.approach_2.embeddings import get_tfidf_embeddings, get_pretrained_embeddings
 
 def train_model(
     csv_path,
     image_dir,
-    output_dir="models/approach-2-flash",
+    output_dir="models/approach-2-scratch",
     epochs=20,
     batch_size=32,
     learning_rate=1e-4,
@@ -59,7 +59,7 @@ def train_model(
         embedding_matrix = get_pretrained_embeddings(vocab_list, "word2vec-google-news-300", embedding_dim)
 
     # Model
-    model = FlashViTCaptionModel(
+    model = ViTCaptionModel(
         image_size=image_size[0],
         vocab_size=len(vocab),
         embed_dim=embedding_dim,
@@ -81,11 +81,15 @@ def train_model(
             imgs = imgs.to(device)
             captions = captions.to(device)
 
-            outputs = model(imgs, captions[:, :-1])
-            targets = captions[:, 1:]
+            # Forward
+            # Input to decoder: <start> ... w_n
+            # Target: w_1 ... <end>
+            outputs = model(imgs, captions[:, :-1]) # (B, SeqLen-1, Vocab)
+            targets = captions[:, 1:] # (B, SeqLen-1)
 
             loss = criterion(outputs.reshape(-1, outputs.shape[-1]), targets.reshape(-1))
 
+            # Backward
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()

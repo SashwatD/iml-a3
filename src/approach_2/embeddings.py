@@ -1,18 +1,17 @@
 import numpy as np
-import tensorflow as tf
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.decomposition import TruncatedSVD
 import gensim.downloader as api
 import os
 import pickle
 
-def get_tfidf_embeddings(vectorizer, captions, embedding_dim=256):
+def get_tfidf_embeddings(vocab_list, captions, embedding_dim=256):
     """
     Generates TF-IDF embeddings reduced to embedding_dim using LSA (SVD).
     
     Args:
-        vectorizer: The adapted TextVectorization layer.
-        captions: List of string captions (e.g. from dataframe).
+        vocab_list: List of words in the vocabulary (itos list).
+        captions: List of string captions.
         embedding_dim: Target dimension for the embeddings.
         
     Returns:
@@ -23,51 +22,53 @@ def get_tfidf_embeddings(vectorizer, captions, embedding_dim=256):
     if captions is None:
         raise ValueError("Captions list is required for TF-IDF embeddings.")
         
-    vocab = vectorizer.get_vocabulary()
-    
-    # Use the helper function
-    return compute_tfidf_matrix(captions, vocab, embedding_dim=embedding_dim)
+    return compute_tfidf_matrix(captions, vocab_list, embedding_dim=embedding_dim)
 
-def compute_tfidf_matrix(captions, vocab, embedding_dim=256):
+def compute_tfidf_matrix(captions, vocab_list, embedding_dim=256):
     """
     Computes TF-IDF matrix for the vocabulary using the provided captions and reduces dimensionality via SVD.
     """
     print(f"Computing TF-IDF on {len(captions)} captions...")
     
-    # Filter vocab to remove special tokens for sklearn
-    clean_vocab = [w for w in vocab if w not in ['', '[UNK]']]
+    # Filter vocab to remove special tokens for sklearn if needed, but we need to keep indices aligned
+    # We will compute TFIDF for all words, but sklearn might ignore special chars.
     
     # Create TfidfVectorizer with the specific vocabulary
-    tfidf = TfidfVectorizer(vocabulary=clean_vocab, token_pattern=r"(?u)\b\w+\b")
-    tfidf_matrix = tfidf.fit_transform(captions) # (n_samples, n_features)
+    # We need to ensure the vocabulary passed to TfidfVectorizer matches our vocab_list indices
+    # TfidfVectorizer expects a dict {word: index} or iterable.
+    
+    vocab_dict = {word: i for i, word in enumerate(vocab_list)}
+    
+    # We need to handle special tokens carefully. 
+    # Let's just pass the full vocab and let TfidfVectorizer handle it.
+    # It might ignore <start>, <end> etc if token_pattern doesn't match.
+    
+    tfidf = TfidfVectorizer(vocabulary=vocab_dict, token_pattern=r"(?u)\b\w+\b")
+    try:
+        tfidf_matrix = tfidf.fit_transform(captions) # (n_samples, n_features)
+    except ValueError:
+        # Fallback if vocab is empty or issues
+        print("Error in TF-IDF fit_transform. Returning random embeddings.")
+        return np.random.normal(scale=0.1, size=(len(vocab_list), embedding_dim)).astype("float32")
     
     # Reduce dimensionality with SVD (LSA)
-    # We transpose to get (n_features, n_samples) so SVD gives us feature embeddings
     print(f"Reducing dimension to {embedding_dim} using SVD...")
     svd = TruncatedSVD(n_components=embedding_dim, random_state=42)
     word_features = svd.fit_transform(tfidf_matrix.T)
     
-    # Map back to full vocab indices
-    final_matrix = np.zeros((len(vocab), embedding_dim), dtype="float32")
-    feature_index_map = {word: i for i, word in enumerate(clean_vocab)}
+    # word_features is (n_features, embedding_dim) which corresponds to (vocab_size, embedding_dim)
+    # providing the vocab was strictly followed.
     
-    for i, word in enumerate(vocab):
-        if word in feature_index_map:
-            final_matrix[i] = word_features[feature_index_map[word]]
-        else:
-            # Initialize special tokens (pad, unk, start, end) randomly
-            final_matrix[i] = np.random.normal(scale=0.1, size=embedding_dim)
-            
-    return final_matrix
+    return word_features.astype("float32")
 
-def get_pretrained_embeddings(vectorizer, model_name="glove-wiki-gigaword-100", embedding_dim=100):
+def get_pretrained_embeddings(vocab_list, model_name="glove-wiki-gigaword-100", embedding_dim=100):
     """
-    Loads pre-trained embeddings using gensim and maps them to the vectorizer's vocabulary.
+    Loads pre-trained embeddings using gensim and maps them to the vocabulary.
     
     Args:
-        vectorizer: The adapted TextVectorization layer.
-        model_name: Gensim model name (e.g., 'glove-wiki-gigaword-100', 'word2vec-google-news-300').
-        embedding_dim: Expected dimension (must match model).
+        vocab_list: List of words in the vocabulary.
+        model_name: Gensim model name.
+        embedding_dim: Expected dimension.
         
     Returns:
         embedding_matrix: A numpy array of shape (vocab_size, embedding_dim).
@@ -80,8 +81,7 @@ def get_pretrained_embeddings(vectorizer, model_name="glove-wiki-gigaword-100", 
         print("Ensure you have internet connection to download embeddings.")
         raise e
         
-    vocab = vectorizer.get_vocabulary()
-    vocab_size = len(vocab)
+    vocab_size = len(vocab_list)
     
     # Check dimension
     if model.vector_size != embedding_dim:
@@ -93,16 +93,14 @@ def get_pretrained_embeddings(vectorizer, model_name="glove-wiki-gigaword-100", 
     hits = 0
     misses = 0
     
-    for i, word in enumerate(vocab):
+    for i, word in enumerate(vocab_list):
         if word in model:
             embedding_matrix[i] = model[word]
             hits += 1
         else:
-            # Initialize OOV with random normal or zeros
-            # Padding (index 0) should ideally be zero, but 'mask_zero=True' in Embedding layer handles it.
-            # If we use 0 for padding index explicitly:
-            if i == 0:
-                continue # Leave as zeros
+            # Initialize OOV with random normal
+            if i == 0: # <pad>
+                continue 
             embedding_matrix[i] = np.random.normal(scale=0.1, size=embedding_dim)
             misses += 1
             
