@@ -9,6 +9,14 @@ import torch.optim as optim
 from torchvision import transforms
 from tqdm import tqdm
 import matplotlib.pyplot as plt
+import resource
+
+# Increase file descriptor limit
+try:
+    rlimit = resource.getrlimit(resource.RLIMIT_NOFILE)
+    resource.setrlimit(resource.RLIMIT_NOFILE, (4096, rlimit[1]))
+except Exception as e:
+    print(f"Could not increase file limit: {e}")
 
 # Fix for "Too many open files" error
 torch.multiprocessing.set_sharing_strategy('file_system')
@@ -54,13 +62,16 @@ def train_model(
 
     # Load Data
     print("Loading data...")
+    num_workers = 0 if device.type == "mps" else 8
+    print(f"Using {num_workers} workers for DataLoader")
+
     train_loader, train_dataset = get_loader(
         image_dir, 
         csv_path, 
         transform, 
         batch_size=batch_size,
         max_length=50,
-        num_workers=8, # Ensure high worker count
+        num_workers=num_workers, # Dynamic worker count
         pin_memory=True if device.type == 'cuda' else False
     )
     

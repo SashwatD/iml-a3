@@ -8,7 +8,7 @@ import pandas as pd
 from PIL import Image
 from torchvision import transforms
 
-from src.utils.dataset_torch import load_vocab, EMOTION_MAP
+from src.utils.dataset_torch import load_vocab
 from src.approach_2.scratch.caption_model import ViTCaptionModel
 from src.approach_2.pretrained.caption_model import PretrainedViTCaptionModel
 from src.approach_2.flash_attention.caption_model import FlashViTCaptionModel
@@ -127,16 +127,16 @@ if __name__ == "__main__":
     CSV_PATH = os.path.join(BASE_DIR, "data/sampled_images/artemis_dataset_release_v0.csv")
     
     if VARIANT == "pretrained":
-        MODEL_PATH = os.path.join(BASE_DIR, "models/approach-2-pretrained/model_final.pth")
-        VOCAB_PATH = os.path.join(BASE_DIR, "models/approach-2-pretrained/vocab.pkl")
+        MODEL_PATH = os.path.join(BASE_DIR, "models/approach-2-pretrained/tfidf/model_epoch_21.pth")
+        VOCAB_PATH = os.path.join(BASE_DIR, "models/approach-2-pretrained/tfidf/vocab.pkl")
         IMAGE_SIZE = (224, 224)
     elif VARIANT == "scratch":
-        MODEL_PATH = os.path.join(BASE_DIR, "models/approach-2-scratch/model_final.pth")
-        VOCAB_PATH = os.path.join(BASE_DIR, "models/approach-2-scratch/vocab.pkl")
+        MODEL_PATH = os.path.join(BASE_DIR, "models/approach-2-scratch/tfidf/model_epoch_21.pth")
+        VOCAB_PATH = os.path.join(BASE_DIR, "models/approach-2-scratch/tfidf/vocab.pkl")
         IMAGE_SIZE = (256, 256)
     elif VARIANT == "flash":
-        MODEL_PATH = os.path.join(BASE_DIR, "models/approach-2-flash/model_final.pth")
-        VOCAB_PATH = os.path.join(BASE_DIR, "models/approach-2-flash/vocab.pkl")
+        MODEL_PATH = os.path.join(BASE_DIR, "models/approach-2-flash/tfidf/model_epoch_21.pth")
+        VOCAB_PATH = os.path.join(BASE_DIR, "models/approach-2-flash/tfidf/vocab.pkl")
         IMAGE_SIZE = (256, 256)
         
     # Test Image

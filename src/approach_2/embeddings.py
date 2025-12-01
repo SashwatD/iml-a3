@@ -64,7 +64,7 @@ def get_pretrained_embeddings(vocab_list, model_name="glove-wiki-gigaword-100", 
     model = None
     
     if model_name == "word2vec":
-        print("Training Word2Vec from scratch...")
+        print("Training Word2Vec from scratch...")x
         if captions is None:
             raise ValueError("Captions are required for training Word2Vec.")
             
