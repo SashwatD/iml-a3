@@ -15,7 +15,7 @@ torch.multiprocessing.set_sharing_strategy('file_system')
 
 from src.utils.dataset_torch import get_loader, save_vocab
 from src.approach_2.flash_attention.caption_model import FlashViTCaptionModel
-from src.approach_2.embeddings import get_tfidf_embeddings, get_pretrained_embeddings
+from src.approach_2.flash_attention.embeddings import get_tfidf_embeddings
 
 def train_model(
     csv_path,
@@ -27,7 +27,7 @@ def train_model(
     image_size=(224, 224), # Standard ViT size
     vocab_size=15000,
     embedding_dim=512, # Increased capacity
-    embedding_type="tfidf"
+    embedding_type="tfidf" # Kept for compatibility, but only tfidf is supported
 ):
     os.makedirs(output_dir, exist_ok=True)
     
@@ -68,17 +68,10 @@ def train_model(
     
     # Embeddings
     embedding_matrix = None
-    if embedding_type == "tfidf":
-        captions = train_dataset.captions
-        vocab_list = [vocab.itos[i] for i in range(len(vocab))]
-        embedding_matrix = get_tfidf_embeddings(vocab_list, captions, embedding_dim=embedding_dim)
-    elif embedding_type == "glove":
-        vocab_list = [vocab.itos[i] for i in range(len(vocab))]
-        embedding_matrix = get_pretrained_embeddings(vocab_list, "glove-wiki-gigaword-100", embedding_dim)
-    elif embedding_type == "word2vec":
-        captions = train_dataset.captions
-        vocab_list = [vocab.itos[i] for i in range(len(vocab))]
-        embedding_matrix = get_pretrained_embeddings(vocab_list, "word2vec", embedding_dim, captions=captions)
+    # Only TF-IDF is supported in this variant to avoid gensim dependency
+    captions = train_dataset.captions
+    vocab_list = [vocab.itos[i] for i in range(len(vocab))]
+    embedding_matrix = get_tfidf_embeddings(vocab_list, captions, embedding_dim=embedding_dim)
 
     # Model
     model = FlashViTCaptionModel(
