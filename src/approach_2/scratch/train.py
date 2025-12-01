@@ -1,10 +1,17 @@
+import sys
 import os
+# Add project root to sys.path to allow importing from src
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../")))
+
 import torch
 import torch.nn as nn
 import torch.optim as optim
 from torchvision import transforms
 from tqdm import tqdm
 import matplotlib.pyplot as plt
+
+# Fix for "Too many open files" error
+torch.multiprocessing.set_sharing_strategy('file_system')
 
 from src.utils.dataset_torch import get_loader, save_vocab
 from src.approach_2.scratch.caption_model import ViTCaptionModel
@@ -13,12 +20,12 @@ from src.approach_2.embeddings import get_tfidf_embeddings, get_pretrained_embed
 def train_model(
     csv_path,
     image_dir,
-    output_dir="models/approach-2-scratch",
-    epochs=20,
-    batch_size=32,
-    learning_rate=1e-4,
+    output_dir=os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../models/approach-2-scratch")),
+    epochs=50,
+    batch_size=64,
+    learning_rate=2e-4,
     image_size=(256, 256),
-    vocab_size=5000,
+    vocab_size=15000,
     embedding_dim=256,
     embedding_type="tfidf"
 ):
@@ -67,6 +74,7 @@ def train_model(
     ).to(device)
 
     criterion = nn.CrossEntropyLoss(ignore_index=vocab.stoi["<pad>"])
+    criterion_emotion = nn.CrossEntropyLoss()
     optimizer = optim.Adam(model.parameters(), lr=learning_rate)
 
     # Training Loop
@@ -77,17 +85,21 @@ def train_model(
         running_loss = 0.0
         loop = tqdm(train_loader, total=len(train_loader), leave=True)
         
-        for imgs, captions in loop:
+        for imgs, captions, emotions in loop:
             imgs = imgs.to(device)
             captions = captions.to(device)
+            emotions = emotions.to(device)
 
             # Forward
             # Input to decoder: <start> ... w_n
             # Target: w_1 ... <end>
-            outputs = model(imgs, captions[:, :-1]) # (B, SeqLen-1, Vocab)
+            caption_logits, emotion_logits = model(imgs, captions[:, :-1]) # (B, SeqLen-1, Vocab)
             targets = captions[:, 1:] # (B, SeqLen-1)
 
-            loss = criterion(outputs.reshape(-1, outputs.shape[-1]), targets.reshape(-1))
+            loss_caption = criterion(caption_logits.reshape(-1, caption_logits.shape[-1]), targets.reshape(-1))
+            loss_emotion = criterion_emotion(emotion_logits, emotions)
+            
+            loss = loss_caption + loss_emotion
 
             # Backward
             optimizer.zero_grad()
@@ -96,7 +108,7 @@ def train_model(
 
             running_loss += loss.item()
             loop.set_description(f"Epoch [{epoch+1}/{epochs}]")
-            loop.set_postfix(loss=loss.item())
+            loop.set_postfix(loss=loss.item(), cap_loss=loss_caption.item(), emo_loss=loss_emotion.item())
 
         epoch_loss = running_loss / len(train_loader)
         loss_history.append(epoch_loss)
@@ -104,6 +116,9 @@ def train_model(
         
         # Save checkpoint
         torch.save(model.state_dict(), os.path.join(output_dir, f"model_epoch_{epoch+1}.pth"))
+
+    # Save final model
+    torch.save(model.state_dict(), os.path.join(output_dir, "model_final.pth"))
 
     # Plot history
     plt.plot(loss_history)
@@ -113,10 +128,12 @@ def train_model(
     plt.savefig(os.path.join(output_dir, "loss.png"))
 
 if __name__ == "__main__":
-    CSV_PATH = "data/images/artemis_dataset_release_v0.csv"
-    IMG_DIR = "data/sampled_images/wikiart"
+    # Use absolute paths
+    BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../"))
+    CSV_PATH = os.path.join(BASE_DIR, "data/images/artemis_dataset_release_v0.csv")
+    IMG_DIR = os.path.join(BASE_DIR, "data/sampled_images/wikiart")
     
     if os.path.exists(CSV_PATH) and os.path.exists(IMG_DIR):
         train_model(CSV_PATH, IMG_DIR, epochs=5)
     else:
-        print("Dataset not found.")
+        print(f"Dataset not found at:\n{CSV_PATH}\n{IMG_DIR}")

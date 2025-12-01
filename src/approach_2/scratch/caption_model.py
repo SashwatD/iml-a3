@@ -84,7 +84,8 @@ class ViTCaptionModel(nn.Module):
         ff_dim=512, 
         dropout=0.1,
         max_length=50,
-        embedding_matrix=None
+        embedding_matrix=None,
+        num_emotions=9
     ):
         super().__init__()
         
@@ -94,6 +95,9 @@ class ViTCaptionModel(nn.Module):
             TransformerEncoderBlock(embed_dim, num_heads, ff_dim, dropout)
             for _ in range(num_encoder_layers)
         ])
+        
+        # Auxiliary Emotion Head
+        self.emotion_head = nn.Linear(embed_dim, num_emotions)
         
         # Decoder
         self.token_emb = nn.Embedding(vocab_size, embed_dim)
@@ -112,13 +116,15 @@ class ViTCaptionModel(nn.Module):
         self.max_length = max_length
 
     def forward(self, images, captions):
-        # images: (B, C, H, W)
-        # captions: (B, SeqLen)
-        
         # Encoder
         enc_out = self.patch_embed(images)
         for layer in self.encoder_layers:
             enc_out = layer(enc_out)
+            
+        # Auxiliary Emotion Prediction (Global Average Pooling)
+        # enc_out is (B, N, E)
+        global_features = enc_out.mean(dim=1)
+        emotion_logits = self.emotion_head(global_features)
             
         # Decoder
         B, SeqLen = captions.shape
@@ -138,5 +144,5 @@ class ViTCaptionModel(nn.Module):
         for layer in self.decoder_layers:
             dec_out = layer(dec_out, enc_out, tgt_mask=tgt_mask)
             
-        output = self.fc_out(dec_out)
-        return output
+        caption_logits = self.fc_out(dec_out)
+        return caption_logits, emotion_logits

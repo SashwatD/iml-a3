@@ -1,9 +1,11 @@
 import numpy as np
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.decomposition import TruncatedSVD
-import gensim.downloader as api
 import os
-import pickle
+import gensim.downloader as api
+from gensim.models import Word2Vec
+import nltk
+from nltk.tokenize import word_tokenize
 
 def get_tfidf_embeddings(vocab_list, captions, embedding_dim=256):
     """
@@ -30,18 +32,7 @@ def compute_tfidf_matrix(captions, vocab_list, embedding_dim=256):
     """
     print(f"Computing TF-IDF on {len(captions)} captions...")
     
-    # Filter vocab to remove special tokens for sklearn if needed, but we need to keep indices aligned
-    # We will compute TFIDF for all words, but sklearn might ignore special chars.
-    
-    # Create TfidfVectorizer with the specific vocabulary
-    # We need to ensure the vocabulary passed to TfidfVectorizer matches our vocab_list indices
-    # TfidfVectorizer expects a dict {word: index} or iterable.
-    
     vocab_dict = {word: i for i, word in enumerate(vocab_list)}
-    
-    # We need to handle special tokens carefully. 
-    # Let's just pass the full vocab and let TfidfVectorizer handle it.
-    # It might ignore <start>, <end> etc if token_pattern doesn't match.
     
     tfidf = TfidfVectorizer(vocabulary=vocab_dict, token_pattern=r"(?u)\b\w+\b")
     try:
@@ -61,41 +52,65 @@ def compute_tfidf_matrix(captions, vocab_list, embedding_dim=256):
     
     return word_features.astype("float32")
 
-def get_pretrained_embeddings(vocab_list, model_name="glove-wiki-gigaword-100", embedding_dim=100):
-    """
-    Loads pre-trained embeddings using gensim and maps them to the vocabulary.
-    
-    Args:
-        vocab_list: List of words in the vocabulary.
-        model_name: Gensim model name.
-        embedding_dim: Expected dimension.
-        
-    Returns:
-        embedding_matrix: A numpy array of shape (vocab_size, embedding_dim).
-    """
-    print(f"Loading pre-trained model: {model_name}...")
+def get_pretrained_embeddings(vocab_list, model_name="glove-wiki-gigaword-100", embedding_dim=100, captions=None):
+    # Ensure nltk resources are available
     try:
-        model = api.load(model_name)
-    except Exception as e:
-        print(f"Error loading gensim model: {e}")
-        print("Ensure you have internet connection to download embeddings.")
-        raise e
+        nltk.data.find('tokenizers/punkt')
+        nltk.data.find('tokenizers/punkt_tab')
+    except LookupError:
+        nltk.download('punkt')
+        nltk.download('punkt_tab')
+
+    model = None
+    
+    if model_name == "word2vec":
+        print("Training Word2Vec from scratch...")
+        if captions is None:
+            raise ValueError("Captions are required for training Word2Vec.")
+            
+        # Tokenize captions
+        print("Tokenizing captions for Word2Vec...")
+        tokenized_captions = [word_tokenize(cap.lower()) for cap in captions]
+        
+        print("Training Word2Vec model...")
+        model = Word2Vec(sentences=tokenized_captions, vector_size=embedding_dim, window=5, min_count=1, workers=4)
+        print("Word2Vec training complete.")
+        
+        # Word2Vec model.wv is the KeyedVectors instance
+        wv = model.wv
+        
+    else:
+        print(f"Loading pre-trained model: {model_name}...")
+        try:
+            # Check if it's a path or a gensim-data model
+            if os.path.exists(model_name):
+                # Load from file (assuming KeyedVectors format or similar)
+                from gensim.models import KeyedVectors
+                wv = KeyedVectors.load_word2vec_format(model_name, binary=True)
+            else:
+                # Download/Load from gensim-data
+                wv = api.load(model_name)
+                
+        except Exception as e:
+            print(f"Error loading gensim model: {e}")
+            print("Ensure you have internet connection to download embeddings.")
+            raise e
         
     vocab_size = len(vocab_list)
     
     # Check dimension
-    if model.vector_size != embedding_dim:
-        print(f"Warning: Requested embedding_dim {embedding_dim} does not match model dim {model.vector_size}.")
-        print(f"Using model dim {model.vector_size}.")
-        embedding_dim = model.vector_size
+    if wv.vector_size != embedding_dim:
+        print(f"Warning: Requested embedding_dim {embedding_dim} does not match model dim {wv.vector_size}.")
+        print(f"Using model dim {wv.vector_size}.")
+        embedding_dim = wv.vector_size
         
     embedding_matrix = np.zeros((vocab_size, embedding_dim), dtype="float32")
     hits = 0
     misses = 0
     
     for i, word in enumerate(vocab_list):
-        if word in model:
-            embedding_matrix[i] = model[word]
+        if word in wv:
+            embedding_matrix[i] = wv[word]
             hits += 1
         else:
             # Initialize OOV with random normal

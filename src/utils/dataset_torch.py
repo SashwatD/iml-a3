@@ -53,11 +53,23 @@ class Vocabulary:
             for token in tokenized_text
         ]
 
+EMOTION_MAP = {
+    "amusement": 0,
+    "anger": 1,
+    "awe": 2,
+    "contentment": 3,
+    "disgust": 4,
+    "excitement": 5,
+    "fear": 6,
+    "sadness": 7,
+    "something else": 8
+}
+
 class ArtemisDataset(Dataset):
-    def __init__(self, root_dir, caption_file, transform=None, freq_threshold=5, vocab=None, split='train', max_length=50):
+    def __init__(self, root_dir, caption_file, transform=None, freq_threshold=2, vocab=None, split='train', max_length=50):
         self.root_dir = root_dir
         self.df = pd.read_csv(caption_file)
-        self.transform = transform
+        self.transform = transform 
         self.max_length = max_length
         
         # Get captions and image paths
@@ -71,6 +83,7 @@ class ArtemisDataset(Dataset):
         
         self.captions = self.df["utterance"].tolist()
         self.image_files = self.df['image_path'].tolist()
+        self.emotions = self.df['emotion'].tolist()
 
         # Initialize vocabulary and build vocab
         if vocab is None:
@@ -85,6 +98,7 @@ class ArtemisDataset(Dataset):
     def __getitem__(self, index):
         caption = self.captions[index]
         img_path = self.image_files[index]
+        emotion = self.emotions[index]
         
         try:
             image = Image.open(img_path).convert("RGB")
@@ -104,8 +118,10 @@ class ArtemisDataset(Dataset):
             numericalized_caption = numericalized_caption[:self.max_length]
         else:
             numericalized_caption += [self.vocab.stoi["<pad>"]] * (self.max_length - len(numericalized_caption))
+            
+        emotion_idx = EMOTION_MAP.get(emotion, EMOTION_MAP["something else"])
 
-        return image, torch.tensor(numericalized_caption)
+        return image, torch.tensor(numericalized_caption), torch.tensor(emotion_idx)
 
 class Collate:
     def __init__(self, pad_idx):
@@ -116,14 +132,15 @@ class Collate:
         imgs = torch.cat(imgs, dim=0)
         targets = [item[1] for item in batch]
         targets = torch.nn.utils.rnn.pad_sequence(targets, batch_first=True, padding_value=self.pad_idx)
-        return imgs, targets
+        emotions = torch.tensor([item[2] for item in batch])
+        return imgs, targets, emotions
 
 def get_loader(
     root_folder,
     annotation_file,
     transform,
     batch_size=32,
-    num_workers=2,
+    num_workers=8,
     shuffle=True,
     pin_memory=True,
     vocab=None,

@@ -25,14 +25,7 @@ data/**
 *.npy
 
 # Model Files (too large for git)
-models/*.h5
-models/*.pt
-models/*.keras
-models/*.weights.h5
-models/**/*.h5
-models/**/*.keras
-models/**/*.pt
-models/**/*.weights.h5
+models/**/**
 
 # Results and Outputs
 results/

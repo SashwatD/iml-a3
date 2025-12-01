@@ -43,7 +43,8 @@ class PretrainedViTCaptionModel(nn.Module):
         ff_dim=2048, 
         dropout=0.1,
         max_length=50,
-        embedding_matrix=None
+        embedding_matrix=None,
+        num_emotions=9
     ):
         super().__init__()
         
@@ -54,6 +55,9 @@ class PretrainedViTCaptionModel(nn.Module):
             param.requires_grad = False # Freeze
             
         self.visual_projection = nn.Linear(768, embed_dim)
+        
+        # Auxiliary Emotion Head
+        self.emotion_head = nn.Linear(embed_dim, num_emotions)
         
         # Decoder
         self.token_emb = nn.Embedding(vocab_size, embed_dim)
@@ -72,12 +76,18 @@ class PretrainedViTCaptionModel(nn.Module):
         self.max_length = max_length
 
     def forward(self, images, captions):
-        # images: (B, 3, 224, 224) - PyTorch standard
+        # images: (B, 3, 224, 224)
         # captions: (B, SeqLen)
         
         # Encoder
         vit_out = self.vit(images).last_hidden_state # (B, 197, 768)
         enc_out = self.visual_projection(vit_out) # (B, 197, 512)
+        
+        # Auxiliary Emotion Prediction (Global Average Pooling)
+        # enc_out is (B, 197, 512)
+        # We average over the sequence dimension (197) to get (B, 512)
+        global_features = enc_out.mean(dim=1)
+        emotion_logits = self.emotion_head(global_features) # (B, num_emotions)
         
         # Decoder
         B, SeqLen = captions.shape
@@ -92,5 +102,6 @@ class PretrainedViTCaptionModel(nn.Module):
         for layer in self.decoder_layers:
             dec_out = layer(dec_out, enc_out, tgt_mask=tgt_mask)
             
-        output = self.fc_out(dec_out)
-        return output
+        caption_logits = self.fc_out(dec_out)
+        
+        return caption_logits, emotion_logits

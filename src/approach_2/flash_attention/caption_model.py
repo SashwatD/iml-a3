@@ -1,23 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-
-class PatchEmbedding(nn.Module):
-    def __init__(self, image_size=256, patch_size=16, in_channels=3, embed_dim=256):
-        super().__init__()
-        self.image_size = image_size
-        self.patch_size = patch_size
-        self.num_patches = (image_size // patch_size) ** 2
-        
-        self.projection = nn.Conv2d(in_channels, embed_dim, kernel_size=patch_size, stride=patch_size)
-        self.position_embedding = nn.Parameter(torch.randn(1, self.num_patches, embed_dim))
-
-    def forward(self, x):
-        x = self.projection(x)
-        x = x.flatten(2)
-        x = x.transpose(1, 2)
-        x = x + self.position_embedding
-        return x
+from transformers import ViTModel
 
 class FlashAttentionBlock(nn.Module):
     def __init__(self, embed_dim, num_heads, ff_dim, dropout=0.1):
@@ -96,28 +80,27 @@ class FlashDecoderBlock(nn.Module):
 class FlashViTCaptionModel(nn.Module):
     def __init__(
         self, 
-        image_size=256, 
-        patch_size=16, 
         vocab_size=5000, 
-        embed_dim=256, 
-        num_heads=4, 
-        num_encoder_layers=4, 
-        num_decoder_layers=4, 
-        ff_dim=512, 
+        embed_dim=512, # Increased default
+        num_heads=8, # Increased default
+        num_decoder_layers=6, # Increased default
+        ff_dim=2048, # Increased default
         dropout=0.1,
         max_length=50,
-        embedding_matrix=None
+        embedding_matrix=None,
+        num_emotions=9
     ):
         super().__init__()
         
-        # Encoder (Standard ViT, can also use Flash Attention here if desired)
-        self.patch_embed = PatchEmbedding(image_size, patch_size, embed_dim=embed_dim)
-        # For simplicity, using standard encoder blocks or flash encoder blocks
-        # Let's use FlashAttentionBlock for encoder too
-        self.encoder_layers = nn.ModuleList([
-            FlashAttentionBlock(embed_dim, num_heads, ff_dim, dropout)
-            for _ in range(num_encoder_layers)
-        ])
+        # Encoder: Pretrained ViT
+        self.vit = ViTModel.from_pretrained('google/vit-base-patch16-224')
+        for param in self.vit.parameters():
+            param.requires_grad = False # Freeze
+            
+        self.visual_projection = nn.Linear(768, embed_dim)
+        
+        # Auxiliary Emotion Head
+        self.emotion_head = nn.Linear(embed_dim, num_emotions)
         
         # Decoder
         self.token_emb = nn.Embedding(vocab_size, embed_dim)
@@ -137,9 +120,13 @@ class FlashViTCaptionModel(nn.Module):
 
     def forward(self, images, captions):
         # Encoder
-        enc_out = self.patch_embed(images)
-        for layer in self.encoder_layers:
-            enc_out = layer(enc_out, is_causal=False)
+        vit_out = self.vit(images).last_hidden_state # (B, 197, 768)
+        enc_out = self.visual_projection(vit_out) # (B, 197, E)
+            
+        # Auxiliary Emotion Prediction (Global Average Pooling)
+        # enc_out is (B, L, E)
+        global_features = enc_out.mean(dim=1)
+        emotion_logits = self.emotion_head(global_features)
             
         # Decoder
         B, SeqLen = captions.shape
@@ -152,5 +139,5 @@ class FlashViTCaptionModel(nn.Module):
         for layer in self.decoder_layers:
             dec_out = layer(dec_out, enc_out)
             
-        output = self.fc_out(dec_out)
-        return output
+        caption_logits = self.fc_out(dec_out)
+        return caption_logits, emotion_logits
