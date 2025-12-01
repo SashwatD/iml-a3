@@ -22,14 +22,14 @@ except Exception as e:
 torch.multiprocessing.set_sharing_strategy('file_system')
 
 from src.utils.dataset_torch import get_loader, save_vocab
-from src.approach_2.pretrained.caption_model import PretrainedViTCaptionModel
+from src.approach_2.finetuning.caption_model import FinetunedViTCaptionModel
 from src.approach_2.embeddings import get_tfidf_embeddings, get_pretrained_embeddings
 
 def train_model(
     csv_path,
     image_dir,
-    output_dir=os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../models/approach-2-pretrained")),
-    epochs=50, # Increased from 20
+    output_dir=os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../models/approach-2-finetuning")),
+    epochs=25, # Fine-tuning epochs
     batch_size=64, # Increased for M4 efficiency
     learning_rate=2e-4, # Slightly higher LR
     image_size=(224, 224), 
@@ -47,7 +47,11 @@ def train_model(
     # ImageNet mean/std: mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]
     # But google/vit-base-patch16-224 uses mean=0.5, std=0.5
     transform = transforms.Compose([
-        transforms.Resize(image_size),
+        transforms.Resize((256, 256)), # Resize larger first
+        transforms.RandomResizedCrop(image_size, scale=(0.8, 1.0)), # Random crop
+        transforms.RandomHorizontalFlip(),
+        transforms.RandomRotation(10),
+        transforms.ColorJitter(brightness=0.1, contrast=0.1),
         transforms.ToTensor(), # [0, 1]
         transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5]) # [-1, 1]
     ])
@@ -85,7 +89,7 @@ def train_model(
         embedding_matrix = get_pretrained_embeddings(vocab_list, "word2vec", embedding_dim, captions=captions)
 
     # Model
-    model = PretrainedViTCaptionModel(
+    model = FinetunedViTCaptionModel(
         vocab_size=len(vocab),
         embed_dim=embedding_dim,
         embedding_matrix=embedding_matrix
@@ -99,6 +103,35 @@ def train_model(
     loss_history = []
     
     for epoch in range(epochs):
+        # Unfreeze ONLY Last Layer of Encoder after 5 epochs
+        if epoch == 5:
+            print("Unfreezing Last Layer of ViT Encoder for Fine-Tuning...")
+            
+            # Ensure everything is frozen first
+            for param in model.vit.parameters():
+                param.requires_grad = False
+            
+            # Unfreeze last layer of encoder
+            for param in model.vit.encoder.layer[-1].parameters():
+                param.requires_grad = True
+            
+            if hasattr(model.vit, 'layernorm'):
+                 for param in model.vit.layernorm.parameters():
+                    param.requires_grad = True
+
+            # Differential Learning Rates
+            encoder_params = []
+            for name, param in model.vit.named_parameters():
+                if param.requires_grad:
+                    encoder_params.append(param)
+            
+            decoder_params = [p for n, p in model.named_parameters() if "vit" not in n]
+            
+            optimizer = optim.AdamW([
+                {'params': encoder_params, 'lr': 1e-5}, # Low LR for Encoder
+                {'params': decoder_params, 'lr': learning_rate} # Normal LR for Decoder
+            ])
+
         model.train()
         running_loss = 0.0
         loop = tqdm(train_loader, total=len(train_loader), leave=True)

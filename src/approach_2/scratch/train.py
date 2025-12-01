@@ -89,7 +89,7 @@ def train_model(
 
     criterion = nn.CrossEntropyLoss(ignore_index=vocab.stoi["<pad>"])
     criterion_emotion = nn.CrossEntropyLoss()
-    optimizer = optim.Adam(model.parameters(), lr=learning_rate)
+    optimizer = optim.AdamW(model.parameters(), lr=learning_rate)
 
     # Training Loop
     loss_history = []

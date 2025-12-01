@@ -85,7 +85,7 @@ class FlashViTCaptionModel(nn.Module):
         num_heads=8, # Increased default
         num_decoder_layers=6, # Increased default
         ff_dim=2048, # Increased default
-        dropout=0.1,
+        dropout=0.4, # Increased to 0.4 for stronger regularization
         max_length=50,
         embedding_matrix=None,
         num_emotions=9

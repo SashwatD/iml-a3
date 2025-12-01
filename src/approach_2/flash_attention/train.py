@@ -29,7 +29,7 @@ def train_model(
     csv_path,
     image_dir,
     output_dir=os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../models/approach-2-flash")),
-    epochs=50,
+    epochs=25, # Matched finetuning variant
     batch_size=256,
     learning_rate=2e-4,
     image_size=(224, 224), # Standard ViT size
@@ -55,9 +55,13 @@ def train_model(
     # Transforms
     # ViT expects normalized images. 
     transform = transforms.Compose([
-        transforms.Resize(image_size),
+        transforms.Resize((256, 256)), # Resize larger first
+        transforms.RandomResizedCrop(image_size, scale=(0.8, 1.0)), # Random crop
+        transforms.RandomHorizontalFlip(),
+        transforms.RandomRotation(10),
+        transforms.ColorJitter(brightness=0.1, contrast=0.1),
         transforms.ToTensor(), # [0, 1]
-        transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5])
+        transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5]) # [-1, 1]
     ])
 
     # Load Data
@@ -102,7 +106,7 @@ def train_model(
 
     criterion = nn.CrossEntropyLoss(ignore_index=vocab.stoi["<pad>"])
     criterion_emotion = nn.CrossEntropyLoss()
-    optimizer = optim.Adam(model.parameters(), lr=learning_rate)
+    optimizer = optim.AdamW(model.parameters(), lr=learning_rate)
     
     # Mixed Precision Scaler
     scaler = torch.amp.GradScaler('cuda', enabled=(device.type == 'cuda'))
@@ -111,6 +115,37 @@ def train_model(
     loss_history = []
     
     for epoch in range(epochs):
+        # Unfreeze ONLY Last Layer of Encoder after 5 epochs
+        if epoch == 5:
+            print("Unfreezing Last Layer of ViT Encoder for Fine-Tuning...")
+            
+            # Ensure everything is frozen first
+            for param in model.vit.parameters():
+                param.requires_grad = False
+            
+            # Unfreeze last layer of encoder
+            # HuggingFace ViT structure: model.vit.encoder.layer is a ModuleList
+            for param in model.vit.encoder.layer[-1].parameters():
+                param.requires_grad = True
+            
+            # Unfreeze LayerNorm if present (usually after encoder)
+            if hasattr(model.vit, 'layernorm'):
+                 for param in model.vit.layernorm.parameters():
+                    param.requires_grad = True
+
+            # Differential Learning Rates
+            encoder_params = []
+            for name, param in model.vit.named_parameters():
+                if param.requires_grad:
+                    encoder_params.append(param)
+            
+            decoder_params = [p for n, p in model.named_parameters() if "vit" not in n]
+            
+            optimizer = optim.AdamW([
+                {'params': encoder_params, 'lr': 1e-5}, # Low LR for Encoder
+                {'params': decoder_params, 'lr': learning_rate} # Normal LR for Decoder
+            ])
+
         model.train()
         running_loss = 0.0
         loop = tqdm(train_loader, total=len(train_loader), leave=True)
