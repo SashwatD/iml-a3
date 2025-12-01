@@ -29,6 +29,7 @@ def train_model(
     embedding_dim=512, # Increased capacity
     embedding_type="tfidf" # Kept for compatibility, but only tfidf is supported
 ):
+    output_dir = os.path.join(output_dir, embedding_type)
     os.makedirs(output_dir, exist_ok=True)
     
     # Device selection: Prioritize CUDA

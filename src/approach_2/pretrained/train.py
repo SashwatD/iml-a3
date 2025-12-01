@@ -29,6 +29,7 @@ def train_model(
     embedding_dim=512, 
     embedding_type="tfidf"
 ):
+    output_dir = os.path.join(output_dir, embedding_type)
     os.makedirs(output_dir, exist_ok=True)
     device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
     print(f"Using device: {device}")
