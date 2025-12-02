@@ -117,13 +117,13 @@ def train_model(
     for epoch in range(epochs):
         # Unfreeze ONLY Last Layer of Encoder after 5 epochs
         if epoch == 5:
-            print("Unfreezing Last 6 Layers of ViT Encoder for Fine-Tuning...")
+            print("Unfreezing Last Layer of ViT Encoder for Fine-Tuning...")
             
             # Ensure everything is frozen first
             for param in model.vit.parameters():
                 param.requires_grad = False
             
-            # Unfreeze last 6 layers of encoder
+            # Unfreeze last layer of encoder
             # HuggingFace ViT structure: model.vit.encoder.layer is a ModuleList
             for layer in model.vit.encoder.layer[-6:]:
                 for param in layer.parameters():
@@ -146,9 +146,6 @@ def train_model(
                 {'params': encoder_params, 'lr': 1e-5}, # Low LR for Encoder
                 {'params': decoder_params, 'lr': learning_rate} # Normal LR for Decoder
             ])
-            
-            # Cosine Decay Scheduler
-            scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs - epoch)
 
         model.train()
         running_loss = 0.0
@@ -173,9 +170,6 @@ def train_model(
             scaler.scale(loss).backward()
             scaler.step(optimizer)
             scaler.update()
-            
-        if 'scheduler' in locals():
-            scheduler.step()
 
             running_loss += loss.item()
             loop.set_description(f"Epoch [{epoch+1}/{epochs}]")

@@ -3,91 +3,12 @@ import torch.nn as nn
 import torch.nn.functional as F
 from transformers import ViTModel
 
-class FlashAttentionBlock(nn.Module):
-    def __init__(self, embed_dim, num_heads, ff_dim, dropout=0.1):
-        super().__init__()
-        self.num_heads = num_heads
-        self.embed_dim = embed_dim
-        self.head_dim = embed_dim // num_heads
-        assert self.head_dim * num_heads == embed_dim, "embed_dim must be divisible by num_heads"
 
-        self.q_proj = nn.Linear(embed_dim, embed_dim)
-        self.k_proj = nn.Linear(embed_dim, embed_dim)
-        self.v_proj = nn.Linear(embed_dim, embed_dim)
-        self.out_proj = nn.Linear(embed_dim, embed_dim)
-        
-        self.norm1 = nn.LayerNorm(embed_dim)
-        self.norm2 = nn.LayerNorm(embed_dim)
-        
-        self.ffn = nn.Sequential(
-            nn.Linear(embed_dim, ff_dim),
-            nn.GELU(),
-            nn.Linear(ff_dim, embed_dim)
-        )
-        self.dropout = nn.Dropout(dropout)
-
-    def forward(self, x, context=None, is_causal=False):
-        B, L, E = x.shape
-        residual = x
-        x = self.norm1(x)
-        
-        q = self.q_proj(x).view(B, L, self.num_heads, self.head_dim).transpose(1, 2) # (B, H, L, D)
-        
-        if context is None:
-            # Self Attention
-            k = self.k_proj(x).view(B, L, self.num_heads, self.head_dim).transpose(1, 2)
-            v = self.v_proj(x).view(B, L, self.num_heads, self.head_dim).transpose(1, 2)
-        else:
-            # Cross Attention
-            S = context.shape[1]
-            k = self.k_proj(context).view(B, S, self.num_heads, self.head_dim).transpose(1, 2)
-            v = self.v_proj(context).view(B, S, self.num_heads, self.head_dim).transpose(1, 2)
-        
-        # Flash Attention with Explicit Masking
-        attn_mask = None
-        if is_causal:
-            attn_mask = torch.triu(torch.ones(L, L, device=x.device, dtype=torch.bool), diagonal=1)
-        
-        # When passing attn_mask, we must set is_causal=False
-        attn_output = F.scaled_dot_product_attention(
-            q, k, v, 
-            attn_mask=attn_mask, 
-            dropout_p=self.dropout.p if self.training else 0.0, 
-            is_causal=False
-        )
-        
-        attn_output = attn_output.transpose(1, 2).contiguous().view(B, L, E)
-        attn_output = self.out_proj(attn_output)
-        attn_output = self.dropout(attn_output)
-        
-        x = residual + attn_output
-        
-        # FFN
-        residual = x
-        x = self.norm2(x)
-        x = self.ffn(x)
-        x = self.dropout(x)
-        x = residual + x
-        
-        return x
-
-class FlashDecoderBlock(nn.Module):
-    def __init__(self, embed_dim, num_heads, ff_dim, dropout=0.1):
-        super().__init__()
-        self.self_attn = FlashAttentionBlock(embed_dim, num_heads, ff_dim, dropout)
-        self.cross_attn = FlashAttentionBlock(embed_dim, num_heads, ff_dim, dropout)
-
-    def forward(self, x, encoder_outputs):
-        # Self Attention (Causal)
-        x = self.self_attn(x, is_causal=True)
-        # Cross Attention
-        x = self.cross_attn(x, context=encoder_outputs, is_causal=False)
-        return x
 
 class FlashViTCaptionModel(nn.Module):
     def __init__(
         self, 
-        vocab_size=15000, 
+        vocab_size=5000, 
         embed_dim=512, # Increased default
         num_heads=8, # Increased default
         num_decoder_layers=6, # Increased default
@@ -120,10 +41,17 @@ class FlashViTCaptionModel(nn.Module):
              self.token_emb.weight.requires_grad = False
              
         self.pos_emb = nn.Embedding(max_length, embed_dim)
-        self.decoder_layers = nn.ModuleList([
-            FlashDecoderBlock(embed_dim, num_heads, ff_dim, dropout)
-            for _ in range(num_decoder_layers)
-        ])
+        
+        # Native PyTorch Transformer Decoder
+        decoder_layer = nn.TransformerDecoderLayer(
+            d_model=embed_dim, 
+            nhead=num_heads, 
+            dim_feedforward=ff_dim, 
+            dropout=dropout, 
+            activation='gelu', # Optimization: GELU
+            batch_first=True
+        )
+        self.decoder = nn.TransformerDecoder(decoder_layer, num_layers=num_decoder_layers)
         
         self.fc_out = nn.Linear(embed_dim, vocab_size)
         self.dropout = nn.Dropout(dropout)
@@ -136,7 +64,7 @@ class FlashViTCaptionModel(nn.Module):
             
         # Auxiliary Emotion Prediction (Global Average Pooling)
         # enc_out is (B, L, E)
-        global_features = enc_out.max(dim=1)[0]
+        global_features = enc_out.mean(dim=1)
         emotion_logits = self.emotion_head(global_features)
             
         # Decoder
@@ -146,9 +74,13 @@ class FlashViTCaptionModel(nn.Module):
         tgt_emb = self.token_emb(captions) + self.pos_emb(positions)
         tgt_emb = self.dropout(tgt_emb)
         
-        dec_out = tgt_emb
-        for layer in self.decoder_layers:
-            dec_out = layer(dec_out, enc_out)
+        # Causal Mask
+        tgt_mask = nn.Transformer.generate_square_subsequent_mask(SeqLen).to(captions.device)
+        
+        # Native Decoder Forward
+        # tgt: (B, SeqLen, E) because batch_first=True
+        # memory: (B, 197, E) because batch_first=True
+        dec_out = self.decoder(tgt_emb, enc_out, tgt_mask=tgt_mask)
             
         caption_logits = self.fc_out(dec_out)
         return caption_logits, emotion_logits
