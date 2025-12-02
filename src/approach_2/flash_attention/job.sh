@@ -15,6 +15,7 @@ module load compiler/anaconda3
 module load compiler/cuda-11.2
 
 # 2. Activate Environment
+source "$(conda info --base)/etc/profile.d/conda.sh"
 conda activate flashenv
 
 # 3. Change to Project Directory
