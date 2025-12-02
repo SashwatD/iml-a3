@@ -18,11 +18,9 @@ module load compiler/cuda-11.2
 conda activate specialenv
 
 # 3. Change to Project Directory
-cd ~/iml/iml-a3/src/approach_2/flash_attention/
+cd ~/iml/iml-a3/
 
-
-source env/bin/activate
 # 4. Run the Training Script
 echo "Starting training..."
-python3 train.py
+python3 src/approach_2/flash_attention/train.py
 echo "Training complete."

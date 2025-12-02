@@ -138,23 +138,23 @@ def generate_caption(model, image_path, vocab, variant, max_length=50, device="c
     return " ".join(result_caption), true_caption, true_emotion
 
 if __name__ == "__main__":
-    VARIANT = "finetuning" # Options: "scratch", "pretrained", "flash", "finetuning"
-    RANDOM_SELECTION=False
+    VARIANT = "pretrained" # Options: "scratch", "pretrained", "flash", "finetuning"
+    RANDOM_SELECTION=True
     
     # Paths
     BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../"))
     CSV_PATH = os.path.join(BASE_DIR, "data/sampled_images/artemis_dataset_release_v0.csv")
     
     if VARIANT == "pretrained":
-        MODEL_PATH = os.path.join(BASE_DIR, "models/approach-2-pretrained/tfidf/model_epoch_21.pth")
-        VOCAB_PATH = os.path.join(BASE_DIR, "models/approach-2-pretrained/tfidf/vocab.pkl")
+        MODEL_PATH = os.path.join(BASE_DIR, "models/approach-2-pretrained/word2vec/model_epoch_5.pth")
+        VOCAB_PATH = os.path.join(BASE_DIR, "models/approach-2-pretrained/word2vec/vocab.pkl")
         IMAGE_SIZE = (224, 224)
     elif VARIANT == "scratch":
-        MODEL_PATH = os.path.join(BASE_DIR, "models/approach-2-scratch/tfidf/model_epoch_21.pth")
+        MODEL_PATH = os.path.join(BASE_DIR, "models/approach-2-scratch/tfidf/model_epoch_5.pth")
         VOCAB_PATH = os.path.join(BASE_DIR, "models/approach-2-scratch/tfidf/vocab.pkl")
         IMAGE_SIZE = (256, 256)
     elif VARIANT == "flash":
-        MODEL_PATH = os.path.join(BASE_DIR, "models/approach-2-flash/tfidf/model_epoch_21.pth")
+        MODEL_PATH = os.path.join(BASE_DIR, "models/approach-2-flash/tfidf/model_epoch_5.pth")
         VOCAB_PATH = os.path.join(BASE_DIR, "models/approach-2-flash/tfidf/vocab.pkl")
         IMAGE_SIZE = (256, 256)
     elif VARIANT == "finetuning":
