@@ -88,12 +88,16 @@ class FlashViTCaptionModel(nn.Module):
         dropout=0.4, # Increased to 0.4 for stronger regularization
         max_length=50,
         embedding_matrix=None,
-        num_emotions=9
+        num_emotions=9,
+        vit_model_path='../../../downloads/google_vit_local'
     ):
         super().__init__()
         
         # Encoder: Pretrained ViT
-        self.vit = ViTModel.from_pretrained('google/vit-base-patch16-224')
+        print(f"Loading ViT from: {vit_model_path}")
+        self.vit = ViTModel.from_pretrained(vit_model_path)
+
+
         for param in self.vit.parameters():
             param.requires_grad = False # Freeze
             
