@@ -1,5 +1,12 @@
 import sys
 import os
+# Add project root to sys.path
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../")))
+
+# Fix for "Too many open files" error
+import torch.multiprocessing
+torch.multiprocessing.set_sharing_strategy('file_system')
+
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -7,23 +14,28 @@ from torchvision import transforms
 from tqdm import tqdm
 import matplotlib.pyplot as plt
 
-# Add project root to sys.path
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../")))
-
 from src.utils.dataset_torch import get_loader, save_vocab
 from src.approach_1.powerful.caption_model import PowerfulCNNLSTMModel
 from src.approach_1.powerful.embeddings import get_tfidf_embeddings
 
-# Fix for "Too many open files" error
-import torch.multiprocessing
-torch.multiprocessing.set_sharing_strategy('file_system')
+# Custom loss
+class MultiTaskLoss(nn.Module):
+    def __init__(self, num_tasks=2):
+        super(MultiTaskLoss, self).__init__()
+        # These are learnable parameters (log_vars)
+        # We initialize them to 0.0 (which means sigma=1.0)
+        self.log_vars = nn.Parameter(torch.zeros(num_tasks))
 
-# Increase file descriptor limit
-try:
-    rlimit = resource.getrlimit(resource.RLIMIT_NOFILE)
-    resource.setrlimit(resource.RLIMIT_NOFILE, (4096, rlimit[1]))
-except Exception as e:
-    print(f"Could not increase file limit: {e}")
+    def forward(self, loss_cap, loss_emo):
+        # Task 1: Captioning
+        precision1 = torch.exp(-self.log_vars[0])
+        weighted_loss1 = precision1 * loss_cap + self.log_vars[0]
+
+        # Task 2: Emotion
+        precision2 = torch.exp(-self.log_vars[1])
+        weighted_loss2 = precision2 * loss_emo + self.log_vars[1]
+
+        return weighted_loss1 + weighted_loss2
 
 def train_model(
     csv_path,
@@ -86,12 +98,19 @@ def train_model(
         embedding_matrix=embedding_matrix
     ).to(device)
     
+    # Uncertainty Loss
+    mtl_loss = MultiTaskLoss(num_tasks=2).to(device)
+    
     # Loss & Optimizer
     criterion_caption = nn.CrossEntropyLoss(ignore_index=vocab.stoi["<pad>"])
     criterion_emotion = nn.CrossEntropyLoss()
     
     # AdamW + Grad Clipping
-    optimizer = optim.AdamW(model.parameters(), lr=learning_rate, weight_decay=0.01)
+    optimizer = optim.AdamW(
+        list(model.parameters()) + list(mtl_loss.parameters()), 
+        lr=learning_rate, 
+        weight_decay=0.01
+    )
     
     # Training Loop
     loss_history = []
@@ -113,12 +132,13 @@ def train_model(
             caption_targets = captions
             
             outputs, emotion_logits = model(imgs, caption_inputs)
-
+            
+            # Raw Losses
             loss_cap = criterion_caption(outputs.reshape(-1, outputs.shape[-1]), caption_targets.reshape(-1))
             loss_emo = criterion_emotion(emotion_logits, emotions)
             
-            # Weighted Loss
-            loss = loss_cap + 0.5 * loss_emo # Alpha for aux loss
+            # Automatic Weighting
+            loss = mtl_loss(loss_cap, loss_emo)
             
             loss.backward()
             
@@ -128,8 +148,13 @@ def train_model(
             optimizer.step()
             
             running_loss += loss.item()
+            
+            # Get learned weights for display
+            w1 = torch.exp(-mtl_loss.log_vars[0]).item()
+            w2 = torch.exp(-mtl_loss.log_vars[1]).item()
+            
             loop.set_description(f"Epoch [{epoch+1}/{epochs}]")
-            loop.set_postfix(loss=loss.item(), cap=loss_cap.item(), emo=loss_emo.item())
+            loop.set_postfix(loss=loss.item(), cap=loss_cap.item(), emo=loss_emo.item(), w_cap=f"{w1:.2f}", w_emo=f"{w2:.2f}")
             
         epoch_loss = running_loss / len(train_loader)
         loss_history.append(epoch_loss)

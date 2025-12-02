@@ -6,13 +6,14 @@ import torch
 import pandas as pd
 from PIL import Image
 from torchvision import transforms
+import torch.nn.functional as F
 
 from src.utils.dataset_torch import load_vocab
 from src.approach_1.basic.caption_model import CNNLSTMModel
 from src.approach_1.optimized.caption_model import OptimizedCNNLSTMModel
 from src.approach_1.powerful.caption_model import PowerfulCNNLSTMModel
 
-def generate_caption(model, image_path, vocab, variant="basic", max_length=50, device="cpu", image_size=(224, 224)):
+def generate_caption(model, image_path, vocab, variant="basic", max_length=50, device="cpu", image_size=(224, 224), beam_size=5, temperature=0.8, alpha=0.8):
     model.eval()
     
     # Preprocessing
@@ -25,58 +26,110 @@ def generate_caption(model, image_path, vocab, variant="basic", max_length=50, d
     img = Image.open(image_path).convert("RGB")
     img = transform(img).unsqueeze(0).to(device)
     
+    # Get True Data
+    BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../"))
+    CSV_PATH = os.path.join(BASE_DIR, "data/sampled_images/artemis_dataset_release_v0.csv")
+    painting_name = image_path.split("/")[-1].split(".")[0]
+    try:
+        df = pd.read_csv(CSV_PATH)
+        row = df[df["painting"] == painting_name].iloc[0]
+        true_caption = row["utterance"]
+    except:
+        true_caption = "Unknown"
+
     with torch.no_grad():
         # 1. Extract Features
         img_features = model.cnn(img)
         
+        # Beam Search Setup
+        sequences = [[0.0, [vocab.stoi["<start>"]], None]] # Score, Sequence, States
+        unk_idx = vocab.stoi.get("<unk>", -1)
+        
         if variant == "basic":
-            # Basic: Project and Concatenate at every step
+            # Basic: Project once
             img_features = model.visual_projection(img_features) # (1, embed_dim)
             
-            states = None
-            inputs = torch.tensor([vocab.stoi["<start>"]]).unsqueeze(0).to(device) # (1, 1)
+            # Initial states are None
+            sequences = [[0.0, [vocab.stoi["<start>"]], None]]
             
-            result_caption = []
-            
-            for _ in range(max_length):
-                embeds = model.embedding(inputs) # (1, 1, embed_dim)
-                img_features_expanded = img_features.unsqueeze(1)
-                lstm_input = torch.cat((embeds, img_features_expanded), dim=2) # (1, 1, 2*embed_dim)
-                
-                hiddens, states = model.lstm(lstm_input, states)
-                outputs = model.fc_out(hiddens)
-                
-                predicted = outputs.argmax(2).item()
-                if predicted == vocab.stoi["<end>"]: break
-                
-                result_caption.append(vocab.itos[predicted])
-                inputs = torch.tensor([predicted]).unsqueeze(0).to(device)
-                
         elif variant in ["optimized", "powerful"]:
-            # Optimized/Powerful: Image as Context Primer (First Token)
-            img_embed = model.visual_projector(img_features) # (1, embed_dim)
+            # Optimized/Powerful: Image as Context Primer
+            # Use content_projector (Split-Head Architecture)
+            img_embed = model.content_projector(img_features) # (1, embed_dim)
             
-            # Step 1: Feed Image
+            # Step 1: Feed Image to get initial state
             lstm_input = img_embed.unsqueeze(1) # (1, 1, embed_dim)
             hiddens, states = model.lstm(lstm_input)
             
-            # Step 2: Feed <start> to generate first word
-            current_token_idx = vocab.stoi["<start>"]
-            result_caption = []
+            # Initial sequence starts with <start> (which we will feed next), but state is already primed by image
+            sequences = [[0.0, [vocab.stoi["<start>"]], states]]
+
+        for _ in range(max_length):
+            all_candidates = []
             
-            for _ in range(max_length):
-                token_embed = model.embedding(torch.tensor([[current_token_idx]]).to(device))
-                hiddens, states = model.lstm(token_embed, states)
+            for score, seq, states in sequences:
+                if seq[-1] == vocab.stoi["<end>"]:
+                    all_candidates.append([score, seq, states])
+                    continue
                 
-                outputs = model.fc_out(hiddens)
-                predicted_idx = outputs.argmax(2).item()
+                # Prepare input for this step
+                last_token = seq[-1]
+                inputs = torch.tensor([last_token]).unsqueeze(0).to(device) # (1, 1)
+                embeds = model.embedding(inputs) # (1, 1, embed_dim)
                 
-                if predicted_idx == vocab.stoi["<end>"]: break
+                if variant == "basic":
+                    # Basic: Concatenate image features at every step
+                    img_features_expanded = img_features.unsqueeze(1)
+                    lstm_input = torch.cat((embeds, img_features_expanded), dim=2)
+                else:
+                    # Optimized/Powerful: Just the token embedding
+                    lstm_input = embeds
                 
-                result_caption.append(vocab.itos[predicted_idx])
-                current_token_idx = predicted_idx
+                # LSTM Step
+                hiddens, new_states = model.lstm(lstm_input, states)
+                outputs = model.fc_out(hiddens) # (1, 1, vocab_size)
                 
-    return " ".join(result_caption)
+                # Logits for the last step
+                logits = outputs[:, -1, :]
+                
+                # Ban <unk>
+                if unk_idx != -1:
+                    logits[:, unk_idx] = float('-inf')
+                
+                # Repetition Penalty
+                for prev_token in set(seq):
+                    logits[:, prev_token] /= 1.2
+                
+                # Temperature
+                logits = logits / temperature
+                log_probs = F.log_softmax(logits, dim=1)
+                
+                # Top-K
+                topk_probs, topk_ids = log_probs.topk(beam_size, dim=1)
+                
+                for i in range(beam_size):
+                    token = topk_ids[0, i].item()
+                    prob = topk_probs[0, i].item()
+                    
+                    all_candidates.append([score + prob, seq + [token], new_states])
+            
+            # Sort by Score with Length Penalty
+            ordered = sorted(all_candidates, key=lambda x: x[0] / (len(x[1]) ** alpha), reverse=True)
+            sequences = ordered[:beam_size]
+            
+            if all(seq[-1] == vocab.stoi["<end>"] for _, seq, _ in sequences):
+                break
+                
+        best_seq = sequences[0][1]
+        
+        # Decode
+        result_caption = []
+        for token in best_seq:
+            if token == vocab.stoi["<start>"]: continue
+            if token == vocab.stoi["<end>"]: break
+            result_caption.append(vocab.itos[token])
+            
+    return " ".join(result_caption), true_caption
 
 if __name__ == "__main__":
     BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../"))
@@ -108,7 +161,7 @@ if __name__ == "__main__":
         elif VARIANT == "optimized":
             model = OptimizedCNNLSTMModel(vocab_size=len(vocab), embed_dim=300, hidden_dim=512)
         elif VARIANT == "powerful":
-            model = PowerfulCNNLSTMModel(vocab_size=len(vocab), embed_dim=300, hidden_dim=512)
+            model = PowerfulCNNLSTMModel(vocab_size=len(vocab), embed_dim=512, hidden_dim=512)
             
         model = model.to(device)
         
@@ -128,9 +181,17 @@ if __name__ == "__main__":
             
             if os.path.exists(full_img_path):
                 print(f"Selected Image: {full_img_path}")
-                print(f"True Caption: {row['utterance']}")
                 
-                caption = generate_caption(model, full_img_path, vocab, variant=VARIANT, device=device)
+                caption, true_caption = generate_caption(
+                    model, 
+                    full_img_path, 
+                    vocab, 
+                    variant=VARIANT, 
+                    device=device,
+                    beam_size=5,
+                    alpha=0.8
+                )
+                print(f"True Caption: {true_caption}")
                 print(f"Generated: {caption}")
             else:
                 print(f"Image not found: {full_img_path}")

@@ -42,67 +42,74 @@ class CustomCNN(nn.Module):
         return x
 
 class OptimizedCNNLSTMModel(nn.Module):
-    def __init__(self, vocab_size, embed_dim=300, hidden_dim=512, embedding_matrix=None, num_emotions=9):
+    def __init__(self, vocab_size, embed_dim=300, hidden_dim=512, embedding_matrix=None, num_emotions=9, dropout_rate=0.5):
         super(OptimizedCNNLSTMModel, self).__init__()
         
-        # A. Visual Encoder
+        # Shared Encoder (The Backbone)
         self.cnn = CustomCNN(output_dim=512)
         
-        # B. Aux Branch (Emotion Head)
-        self.emotion_head = nn.Sequential(
-            nn.Linear(512, 256),
+        # The "Caption" Path (For Captioning)
+        # Deep projection to force the model to learn OBJECTS here
+        self.caption_projector = nn.Sequential(
+            nn.Linear(512, 512),
+            nn.BatchNorm1d(512),
             nn.ReLU(),
+            nn.Dropout(dropout_rate),
+            nn.Linear(512, embed_dim) # Down to embed_dim for LSTM
+        )
+        
+        # The "Emotion" Path (For Classification)
+        # Separate projection to keep SENTIMENT here
+        self.emotion_projector = nn.Sequential(
+            nn.Linear(512, 256),
+            nn.BatchNorm1d(256),
+            nn.ReLU(),
+            nn.Dropout(dropout_rate),
             nn.Linear(256, num_emotions)
         )
         
-        # C. Main Branch
-        # Visual Projector
-        self.visual_projector = nn.Sequential(
-            nn.Linear(512, embed_dim),
-            nn.BatchNorm1d(embed_dim),
-            nn.ReLU()
-        )
-        
-        # Text Encoder
+        # Sequence Decoder (Standard)
         self.embedding = nn.Embedding(vocab_size, embed_dim)
         if embedding_matrix is not None:
             self.embedding.weight = nn.Parameter(torch.tensor(embedding_matrix, dtype=torch.float32))
             self.embedding.weight.requires_grad = False
             
-        # Stacked LSTM (2 Layers)
-        self.lstm = nn.LSTM(embed_dim, hidden_dim, num_layers=2, batch_first=True, dropout=0.5)
+        self.lstm = nn.LSTM(
+            input_size=embed_dim,
+            hidden_size=hidden_dim,
+            num_layers=2,
+            batch_first=True,
+            dropout=dropout_rate
+        )
         
-        # Caption Head
         self.fc_out = nn.Linear(hidden_dim, vocab_size)
-        
-        self.dropout = nn.Dropout(0.5)
+        self.dropout = nn.Dropout(dropout_rate)
 
     def forward(self, images, captions):
-        # images: (B, 3, 224, 224)
-        # captions: (B, SeqLen) - includes <start> ... <end>
+        # 1. Shared Features
+        shared_feats = self.cnn(images) # (B, 512)
         
-        # 1. Extract Features
-        img_features = self.cnn(images) # (B, 512)
+        # 2. Split Paths
+        # Caption Vector: "Woman, Beach, Sand"
+        caption_vec = self.caption_projector(shared_feats) # (B, embed_dim)
         
-        # 2. Aux Branch: Emotion Prediction
-        emotion_logits = self.emotion_head(img_features)
+        # Emotion Logits: "Happy, Calm"
+        emotion_logits = self.emotion_projector(shared_feats) # (B, num_emotions)
         
-        # 3. Main Branch
-        # Project Image Features
-        img_embed = self.visual_projector(img_features) # (B, embed_dim)
+        # 3. Caption Generation (Using only Caption Vector)
+        # We inject the caption vector as the first token (Context Primer)
+        img_token = caption_vec.unsqueeze(1) # (B, 1, embed_dim)
         
-        # Embed Captions
-        word_embeds = self.embedding(captions) # (B, SeqLen, embed_dim)
+        # Embed captions (exclude <end> as usual for input)
+        text_embeds = self.embedding(captions) # (B, SeqLen, embed_dim)
         
         # Concatenate [Image, Words]
-        # img_embed: (B, embed_dim) -> (B, 1, embed_dim)
-        lstm_input = torch.cat((img_embed.unsqueeze(1), word_embeds), dim=1) # (B, SeqLen+1, embed_dim)
+        lstm_input = torch.cat((img_token, text_embeds), dim=1) # (B, SeqLen+1, embed_dim)
         
-        # LSTM
-        lstm_out, _ = self.lstm(lstm_input) # (B, SeqLen+1, hidden_dim)
+        lstm_out, _ = self.lstm(lstm_input)
         
         # Output
         lstm_out = self.dropout(lstm_out)
-        outputs = self.fc_out(lstm_out) # (B, SeqLen+1, vocab_size)
+        caption_logits = self.fc_out(lstm_out)
         
-        return outputs, emotion_logits
+        return caption_logits, emotion_logits
