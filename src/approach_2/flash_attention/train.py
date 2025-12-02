@@ -97,11 +97,7 @@ def train_model(
         num_decoder_layers=6, # Deeper decoder
         embedding_matrix=embedding_matrix
     ).to(device)
-    
-    # Compile model for faster execution on NVIDIA
-    # if hasattr(torch, 'compile'):
-    #     print("Compiling model with torch.compile...")
-    #     model = torch.compile(model)
+
 
     criterion = nn.CrossEntropyLoss(ignore_index=vocab.stoi["<pad>"], label_smoothing=0.1)
     criterion_emotion = nn.CrossEntropyLoss()
@@ -163,7 +159,7 @@ def train_model(
                 targets = captions[:, 1:]
                 loss_caption = criterion(caption_logits.reshape(-1, caption_logits.shape[-1]), targets.reshape(-1))
                 loss_emotion = criterion_emotion(emotion_logits, emotions)
-                loss = loss_caption + 2.0 * loss_emotion
+                loss = loss_caption + 1.5 * loss_emotion
 
             # Scaled Backward Pass
             scaler.scale(loss).backward()
