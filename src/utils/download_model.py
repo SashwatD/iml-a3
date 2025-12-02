@@ -2,11 +2,11 @@ import os
 from transformers import ViTModel, ViTImageProcessor
 
 # Make downloads directory if it doesn't exist
-os.makedirs('../downloads', exist_ok=True)
+os.makedirs('./downloads', exist_ok=True)
 
 # 1. Define the model ID and where you want to save it
 model_id = 'google/vit-base-patch16-224'
-save_path = '../downloads/google_vit_local'  # This will create a folder in your current directory
+save_path = './downloads/google_vit_local'  # This will create a folder in your current directory
 
 print(f"Downloading {model_id}...")
 
