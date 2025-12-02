@@ -1,7 +1,7 @@
 #!/bin/bash
 #PBS -N stma
 #PBS -q gpu
-#PBS -l select=1:ncpus=40:ngpus=1:host=compute3
+#PBS -l select=1:ncpus=50:host=compute3
 #PBS -l walltime=24:00:00
 #PBS -j oe
 #PBS -o output_log.txt
