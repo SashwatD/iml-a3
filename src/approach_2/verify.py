@@ -138,7 +138,7 @@ def generate_caption(model, image_path, vocab, variant, max_length=50, device="c
     return " ".join(result_caption), true_caption, true_emotion
 
 if __name__ == "__main__":
-    VARIANT = "pretrained" # Options: "scratch", "pretrained", "flash", "finetuning"
+    VARIANT = "flash" # Options: "scratch", "pretrained", "flash", "finetuning"
     RANDOM_SELECTION=True
     
     # Paths
