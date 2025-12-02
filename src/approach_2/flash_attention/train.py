@@ -29,7 +29,7 @@ def train_model(
     csv_path,
     image_dir,
     output_dir=os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../models/approach-2-flash")),
-    epochs=25, # Matched finetuning variant
+    epochs=70, # Matched finetuning variant
     batch_size=256,
     learning_rate=2e-4,
     image_size=(224, 224), # Standard ViT size
