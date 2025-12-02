@@ -13,6 +13,7 @@ module load libs/libblas-3.10.0
 module load libs/liblapack-3.10.1
 module load compiler/anaconda3
 module load compiler/cuda-11.2
+module load compiler/gcc-11.2.0
 
 # 2. Activate Environment
 source "$(conda info --base)/etc/profile.d/conda.sh"
