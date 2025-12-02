@@ -7,6 +7,9 @@ from torchvision import transforms
 from tqdm import tqdm
 import matplotlib.pyplot as plt
 
+# Add project root to sys.path
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../")))
+
 from src.utils.dataset_torch import get_loader, save_vocab
 from src.approach_1.optimized.caption_model import OptimizedCNNLSTMModel
 from src.approach_1.embeddings import get_tfidf_embeddings, get_pretrained_embeddings

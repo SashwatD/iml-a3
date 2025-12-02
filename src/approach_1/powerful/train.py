@@ -7,13 +7,12 @@ from torchvision import transforms
 from tqdm import tqdm
 import matplotlib.pyplot as plt
 
-from src.utils.dataset_torch import get_loader, save_vocab
-# Import LOCAL modules to avoid gensim dependency
-from src.approach_1.powerful.caption_model import PowerfulCNNLSTMModel
-from src.approach_1.powerful.embeddings import get_tfidf_embeddings
-
 # Add project root to sys.path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../")))
+
+from src.utils.dataset_torch import get_loader, save_vocab
+from src.approach_1.powerful.caption_model import PowerfulCNNLSTMModel
+from src.approach_1.powerful.embeddings import get_tfidf_embeddings
 
 # Fix for "Too many open files" error
 import torch.multiprocessing
