@@ -15,8 +15,6 @@ model = ViTModel.from_pretrained(model_id)
 model.save_pretrained(save_path)
 
 # 3. Download Processor (Config/Feature Extractor)
-# Even if you don't use the processor in the model class, 
-# downloading the config is essential for 'from_pretrained' to work offline.
 processor = ViTImageProcessor.from_pretrained(model_id)
 processor.save_pretrained(save_path)
 
