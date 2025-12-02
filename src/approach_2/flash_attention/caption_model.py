@@ -27,27 +27,34 @@ class FlashAttentionBlock(nn.Module):
         self.dropout = nn.Dropout(dropout)
 
     def forward(self, x, context=None, is_causal=False):
-        # x: (B, L, E)
-        # context: (B, S, E) - if None, self-attention
-        
         B, L, E = x.shape
         residual = x
         x = self.norm1(x)
         
-        q = self.q_proj(x).view(B, L, self.num_heads, self.head_dim).transpose(1, 2)
+        q = self.q_proj(x).view(B, L, self.num_heads, self.head_dim).transpose(1, 2) # (B, H, L, D)
         
         if context is None:
+            # Self Attention
             k = self.k_proj(x).view(B, L, self.num_heads, self.head_dim).transpose(1, 2)
             v = self.v_proj(x).view(B, L, self.num_heads, self.head_dim).transpose(1, 2)
         else:
+            # Cross Attention
             S = context.shape[1]
             k = self.k_proj(context).view(B, S, self.num_heads, self.head_dim).transpose(1, 2)
             v = self.v_proj(context).view(B, S, self.num_heads, self.head_dim).transpose(1, 2)
-            
-        # Flash Attention
-        # scaled_dot_product_attention handles is_causal automatically if supported
-        # It expects (B, H, L, D)
-        attn_output = F.scaled_dot_product_attention(q, k, v, is_causal=is_causal, dropout_p=self.dropout.p if self.training else 0.0)
+        
+        # Flash Attention with Explicit Masking
+        attn_mask = None
+        if is_causal:
+            attn_mask = torch.triu(torch.ones(L, L, device=x.device, dtype=torch.bool), diagonal=1)
+        
+        # When passing attn_mask, we must set is_causal=False
+        attn_output = F.scaled_dot_product_attention(
+            q, k, v, 
+            attn_mask=attn_mask, 
+            dropout_p=self.dropout.p if self.training else 0.0, 
+            is_causal=False
+        )
         
         attn_output = attn_output.transpose(1, 2).contiguous().view(B, L, E)
         attn_output = self.out_proj(attn_output)
