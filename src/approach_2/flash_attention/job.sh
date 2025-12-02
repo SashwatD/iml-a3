@@ -15,12 +15,12 @@ module load compiler/anaconda3
 module load compiler/cuda-11.2
 
 # 2. Activate Environment
-conda activate specialenv
+conda activate flashenv
 
 # 3. Change to Project Directory
 cd ~/iml/iml-a3/
 
 # 4. Run the Training Script
 echo "Starting training..."
-python3 src/approach_2/flash_attention/train.py
+python3 src/approach_2/flash_attention/train.py > output_log.txt 2>&1
 echo "Training complete."
