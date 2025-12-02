@@ -15,7 +15,7 @@ from src.approach_2.pretrained.caption_model import PretrainedViTCaptionModel
 from src.approach_2.flash_attention.caption_model import FlashViTCaptionModel
 from src.approach_2.finetuning.caption_model import FinetunedViTCaptionModel
 
-def generate_caption(model, image_path, vocab, variant, max_length=50, device="cpu", image_size=(224, 224), beam_size=5, temperature=0.8):
+def generate_caption(model, image_path, vocab, variant, max_length=50, device="cpu", image_size=(224, 224), beam_size=5, temperature=0.8, alpha=0.8):
     model.eval()
     
     # 1. Preprocessing
@@ -84,11 +84,11 @@ def generate_caption(model, image_path, vocab, variant, max_length=50, device="c
                 
                 # Forward Pass
                 dec_out = tgt_emb
-                for layer in model.decoder_layers:
-                    if variant in ["pretrained", "scratch", "finetuning"]:
-                        dec_out = layer(dec_out, enc_out, tgt_mask=tgt_mask)
-                    elif variant == "flash":
-                        dec_out = layer(dec_out, enc_out) 
+                if variant == "flash":
+                    dec_out = model.decoder(dec_out, enc_out, tgt_mask=tgt_mask)
+                else:
+                    for layer in model.decoder_layers:
+                        dec_out = layer(dec_out, enc_out, tgt_mask=tgt_mask) 
 
                 outputs = model.fc_out(dec_out) # Shape: (1, SeqLen, Vocab)
                 
@@ -118,8 +118,10 @@ def generate_caption(model, image_path, vocab, variant, max_length=50, device="c
                     # Add to candidates
                     all_candidates.append([score + prob, seq + [token]])
             
-            # Sort by Score (Highest is best because log_probs are negative closest to 0)
-            ordered = sorted(all_candidates, key=lambda x: x[0], reverse=True)
+            # Sort by Score with Length Penalty
+            # score is negative log prob sum. 
+            # We divide by length^alpha. Since score is negative, dividing by >1 makes it larger (closer to 0).
+            ordered = sorted(all_candidates, key=lambda x: x[0] / (len(x[1]) ** alpha), reverse=True)
             sequences = ordered[:beam_size]
             
             # Stop if all beams are finished
@@ -234,7 +236,8 @@ if __name__ == "__main__":
                 device=device, 
                 image_size=IMAGE_SIZE,
                 beam_size=BEAM_SIZE,
-                temperature=TEMPERATURE
+                temperature=TEMPERATURE,
+                alpha=0.8
             )
             print(f"Generated: {caption}")
             print(f"True Caption: {true_caption}")

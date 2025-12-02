@@ -24,5 +24,5 @@ cd ~/iml/iml-a3/
 
 # 4. Run the Training Script
 echo "Starting training..."
-python3 -u src/approach_2/flash_attention/train.py | tee output_log.txt
+python3 -u src/approach_2/flash_attention/train.py 2>&1 | tee output_log.txt
 echo "Training complete."

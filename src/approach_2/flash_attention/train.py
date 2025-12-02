@@ -29,13 +29,12 @@ def train_model(
     csv_path,
     image_dir,
     output_dir=os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../models/approach-2-flash")),
-    epochs=70, # Matched finetuning variant
+    epochs=150, # Matched finetuning variant
     batch_size=256,
     learning_rate=2e-4,
-    image_size=(224, 224), # Standard ViT size
-    vocab_size=15000,
-    embedding_dim=512, # Increased capacity
-    embedding_type="tfidf" # Kept for compatibility, but only tfidf is supported
+    image_size=(224, 224),
+    embedding_dim=512, 
+    embedding_type="tfidf"
 ):
     output_dir = os.path.join(output_dir, embedding_type)
     os.makedirs(output_dir, exist_ok=True)
@@ -117,7 +116,7 @@ def train_model(
     for epoch in range(epochs):
         # Unfreeze ONLY Last Layer of Encoder after 5 epochs
         if epoch == 5:
-            print("Unfreezing Last Layer of ViT Encoder for Fine-Tuning...")
+            print("Unfreezing Last 6 Layer of ViT Encoder for Fine-Tuning...")
             
             # Ensure everything is frozen first
             for param in model.vit.parameters():
@@ -149,7 +148,7 @@ def train_model(
 
         model.train()
         running_loss = 0.0
-        loop = tqdm(train_loader, total=len(train_loader), leave=True)
+        loop = tqdm(train_loader, total=len(train_loader), leave=True, file=sys.stdout)
         
         for imgs, captions, emotions in loop:
             imgs = imgs.to(device, non_blocking=True)
