@@ -89,7 +89,7 @@ class FlashViTCaptionModel(nn.Module):
         max_length=50,
         embedding_matrix=None,
         num_emotions=9,
-        vit_model_path='../../../downloads/google_vit_local'
+        vit_model_path='/home/arnav.goyal_ug2023/iml/iml-a3/downloads/google_vit_local'
     ):
         super().__init__()
         
