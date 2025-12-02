@@ -29,11 +29,11 @@ def train_model(
     csv_path,
     image_dir,
     output_dir=os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../models/approach-1-powerful")),
-    epochs=50,
-    batch_size=128,
+    epochs=100,
+    batch_size=256,
     learning_rate=1e-3,
     image_size=(224, 224),
-    embedding_dim=300,
+    embedding_dim=512,
     embedding_type="tfidf"
 ):
     output_dir = os.path.join(output_dir, embedding_type)
