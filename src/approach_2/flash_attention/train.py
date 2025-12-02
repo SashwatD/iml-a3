@@ -100,9 +100,9 @@ def train_model(
     ).to(device)
     
     # Compile model for faster execution on NVIDIA
-    if hasattr(torch, 'compile'):
-        print("Compiling model with torch.compile...")
-        model = torch.compile(model)
+    # if hasattr(torch, 'compile'):
+    #     print("Compiling model with torch.compile...")
+    #     model = torch.compile(model)
 
     criterion = nn.CrossEntropyLoss(ignore_index=vocab.stoi["<pad>"])
     criterion_emotion = nn.CrossEntropyLoss()
