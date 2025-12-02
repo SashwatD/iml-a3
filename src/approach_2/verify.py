@@ -154,7 +154,7 @@ if __name__ == "__main__":
         VOCAB_PATH = os.path.join(BASE_DIR, "models/approach-2-scratch/tfidf/vocab.pkl")
         IMAGE_SIZE = (256, 256)
     elif VARIANT == "flash":
-        MODEL_PATH = os.path.join(BASE_DIR, "models/approach-2-flash/tfidf/model_epoch_5.pth")
+        MODEL_PATH = os.path.join(BASE_DIR, "models/approach-2-flash/tfidf/model_final.pth")
         VOCAB_PATH = os.path.join(BASE_DIR, "models/approach-2-flash/tfidf/vocab.pkl")
         IMAGE_SIZE = (256, 256)
     elif VARIANT == "finetuning":
