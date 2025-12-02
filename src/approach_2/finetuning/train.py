@@ -33,7 +33,6 @@ def train_model(
     batch_size=64, # Increased for M4 efficiency
     learning_rate=2e-4, # Slightly higher LR
     image_size=(224, 224), 
-    vocab_size=15000, # Increased vocab size
     embedding_dim=512, 
     embedding_type="word2vec"
 ):
