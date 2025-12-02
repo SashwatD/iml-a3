@@ -156,7 +156,7 @@ if __name__ == "__main__":
     elif VARIANT == "flash":
         MODEL_PATH = os.path.join(BASE_DIR, "models/approach-2-flash/tfidf/model_final.pth")
         VOCAB_PATH = os.path.join(BASE_DIR, "models/approach-2-flash/tfidf/vocab.pkl")
-        IMAGE_SIZE = (256, 256)
+        IMAGE_SIZE = (224, 224)
     elif VARIANT == "finetuning":
         MODEL_PATH = os.path.join(BASE_DIR, "models/approach-2-finetuning/word2vec/model_final.pth")
         VOCAB_PATH = os.path.join(BASE_DIR, "models/approach-2-finetuning/word2vec/vocab.pkl")
@@ -211,7 +211,8 @@ if __name__ == "__main__":
         elif VARIANT == "scratch":
             model = ViTCaptionModel(image_size=IMAGE_SIZE[0], vocab_size=len(vocab)).to(device)
         elif VARIANT == "flash":
-            model = FlashViTCaptionModel(image_size=IMAGE_SIZE[0], vocab_size=len(vocab)).to(device)
+            vit_path = os.path.join(BASE_DIR, "downloads/google_vit_local")
+            model = FlashViTCaptionModel(vocab_size=len(vocab), vit_model_path=vit_path).to(device)
         elif VARIANT == "finetuning":
             model = FinetunedViTCaptionModel(vocab_size=len(vocab)).to(device)
             

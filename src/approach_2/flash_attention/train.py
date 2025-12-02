@@ -104,7 +104,7 @@ def train_model(
     #     print("Compiling model with torch.compile...")
     #     model = torch.compile(model)
 
-    criterion = nn.CrossEntropyLoss(ignore_index=vocab.stoi["<pad>"])
+    criterion = nn.CrossEntropyLoss(ignore_index=vocab.stoi["<pad>"], label_smoothing=0.1)
     criterion_emotion = nn.CrossEntropyLoss()
     optimizer = optim.AdamW(model.parameters(), lr=learning_rate)
     
@@ -117,16 +117,17 @@ def train_model(
     for epoch in range(epochs):
         # Unfreeze ONLY Last Layer of Encoder after 5 epochs
         if epoch == 5:
-            print("Unfreezing Last Layer of ViT Encoder for Fine-Tuning...")
+            print("Unfreezing Last 6 Layers of ViT Encoder for Fine-Tuning...")
             
             # Ensure everything is frozen first
             for param in model.vit.parameters():
                 param.requires_grad = False
             
-            # Unfreeze last layer of encoder
+            # Unfreeze last 6 layers of encoder
             # HuggingFace ViT structure: model.vit.encoder.layer is a ModuleList
-            for param in model.vit.encoder.layer[-1].parameters():
-                param.requires_grad = True
+            for layer in model.vit.encoder.layer[-6:]:
+                for param in layer.parameters():
+                    param.requires_grad = True
             
             # Unfreeze LayerNorm if present (usually after encoder)
             if hasattr(model.vit, 'layernorm'):
@@ -145,6 +146,9 @@ def train_model(
                 {'params': encoder_params, 'lr': 1e-5}, # Low LR for Encoder
                 {'params': decoder_params, 'lr': learning_rate} # Normal LR for Decoder
             ])
+            
+            # Cosine Decay Scheduler
+            scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs - epoch)
 
         model.train()
         running_loss = 0.0
@@ -163,12 +167,15 @@ def train_model(
                 targets = captions[:, 1:]
                 loss_caption = criterion(caption_logits.reshape(-1, caption_logits.shape[-1]), targets.reshape(-1))
                 loss_emotion = criterion_emotion(emotion_logits, emotions)
-                loss = loss_caption + loss_emotion
+                loss = loss_caption + 2.0 * loss_emotion
 
             # Scaled Backward Pass
             scaler.scale(loss).backward()
             scaler.step(optimizer)
             scaler.update()
+            
+        if 'scheduler' in locals():
+            scheduler.step()
 
             running_loss += loss.item()
             loop.set_description(f"Epoch [{epoch+1}/{epochs}]")

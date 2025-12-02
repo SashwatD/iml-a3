@@ -21,7 +21,7 @@ class FlashAttentionBlock(nn.Module):
         
         self.ffn = nn.Sequential(
             nn.Linear(embed_dim, ff_dim),
-            nn.ReLU(),
+            nn.GELU(),
             nn.Linear(ff_dim, embed_dim)
         )
         self.dropout = nn.Dropout(dropout)
@@ -80,7 +80,7 @@ class FlashDecoderBlock(nn.Module):
 class FlashViTCaptionModel(nn.Module):
     def __init__(
         self, 
-        vocab_size=5000, 
+        vocab_size=15000, 
         embed_dim=512, # Increased default
         num_heads=8, # Increased default
         num_decoder_layers=6, # Increased default
@@ -129,7 +129,7 @@ class FlashViTCaptionModel(nn.Module):
             
         # Auxiliary Emotion Prediction (Global Average Pooling)
         # enc_out is (B, L, E)
-        global_features = enc_out.mean(dim=1)
+        global_features = enc_out.max(dim=1)[0]
         emotion_logits = self.emotion_head(global_features)
             
         # Decoder
