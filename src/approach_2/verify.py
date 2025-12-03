@@ -2,15 +2,12 @@ import sys
 import os
 # Add project root
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../")))
-
 import torch
 import pandas as pd
 from PIL import Image
 import torch.nn.functional as F
 from torchvision import transforms
-
 from src.utils.dataset_torch import load_vocab
-from src.approach_2.scratch.caption_model import ViTCaptionModel
 from src.approach_2.pretrained.caption_model import PretrainedViTCaptionModel
 from src.approach_2.flash_attention.caption_model import FlashViTCaptionModel
 from src.approach_2.finetuning.caption_model import FinetunedViTCaptionModel
@@ -164,9 +161,6 @@ if __name__ == "__main__":
         MODEL_PATH = os.path.join(BASE_DIR, "models/approach-2-pretrained/word2vec/model_epoch_5.pth")
         VOCAB_PATH = os.path.join(BASE_DIR, "models/approach-2-pretrained/word2vec/vocab.pkl")
         IMAGE_SIZE = (224, 224)
-    elif VARIANT == "scratch":
-        MODEL_PATH = os.path.join(BASE_DIR, "models/approach-2-scratch/tfidf/model_epoch_5.pth")
-        VOCAB_PATH = os.path.join(BASE_DIR, "models/approach-2-scratch/tfidf/vocab.pkl")
         IMAGE_SIZE = (256, 256)
     elif VARIANT == "flash":
         MODEL_PATH = os.path.join(BASE_DIR, "models/approach-2-flash/tfidf/model_final.pth")
@@ -223,8 +217,6 @@ if __name__ == "__main__":
         # Initialize Model
         if VARIANT == "pretrained":
             model = PretrainedViTCaptionModel(vocab_size=len(vocab)).to(device)
-        elif VARIANT == "scratch":
-            model = ViTCaptionModel(image_size=IMAGE_SIZE[0], vocab_size=len(vocab)).to(device)
         elif VARIANT == "flash":
             vit_path = os.path.join(BASE_DIR, "downloads/google_vit_local")
             model = FlashViTCaptionModel(vocab_size=len(vocab), vit_model_path=vit_path).to(device)
@@ -272,11 +264,6 @@ if __name__ == "__main__":
             
             # Calculate Metrics
             from src.helpers.metrics import evaluate_model
-            
-            # Get emotion logits if available
-            # Note: generate_caption returns 'emotion' which is the true emotion string
-            # We need predicted logits.
-            # Let's update generate_caption to return logits too.
             
             evaluate_model([true_caption], [caption], emotion_preds=emotion_logits, emotion_targets=torch.tensor([true_emotion_idx]))
         else:
