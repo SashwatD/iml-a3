@@ -90,6 +90,9 @@ def train_model(
         embedding_matrix = get_tfidf_embeddings(vocab_list, captions, embedding_dim=embedding_dim)
     elif "word2vec" in embedding_type or "glove" in embedding_type:
         embedding_matrix = get_pretrained_embeddings(vocab_list, model_name=embedding_type, embedding_dim=embedding_dim, captions=captions)
+        if embedding_matrix is not None:
+            print(f"Updating embedding_dim from {embedding_dim} to {embedding_matrix.shape[1]}")
+            embedding_dim = embedding_matrix.shape[1]
     else:
         print(f"Warning: Embedding type {embedding_type} not supported. Using random initialization.")
 

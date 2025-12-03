@@ -71,14 +71,6 @@ def get_pretrained_embeddings(vocab_list, model_name="glove-wiki-gigaword-100", 
     import nltk
     from nltk.tokenize import word_tokenize
 
-    # Ensure nltk resources are available
-    try:
-        nltk.data.find('tokenizers/punkt')
-        nltk.data.find('tokenizers/punkt_tab')
-    except LookupError:
-        nltk.download('punkt')
-        nltk.download('punkt_tab')
-
     # Check local downloads first
     local_path = os.path.join('./downloads/embeddings', f"{model_name}.bin")
     
