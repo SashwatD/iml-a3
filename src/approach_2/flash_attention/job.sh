@@ -4,7 +4,7 @@
 #PBS -l select=1:ncpus=100:host=compute3
 #PBS -l walltime=24:00:00
 #PBS -j oe
-#PBS -o output_log.txt
+#PBS -o output_log_flash.txt
 
 # --- Body of the Job ---
 
@@ -24,5 +24,5 @@ cd ~/iml/iml-a3/
 
 # 4. Run the Training Script
 echo "Starting training..."
-python3 -u src/approach_2/flash_attention/train.py 2>&1 | tee output_log.txt
+python3 -u src/approach_2/flash_attention/train.py 2>&1 | tee output_log_flash.txt
 echo "Training complete."
