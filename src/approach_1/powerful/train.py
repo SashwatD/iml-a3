@@ -16,7 +16,8 @@ import matplotlib.pyplot as plt
 
 from src.utils.dataset_torch import get_loader, save_vocab
 from src.approach_1.powerful.caption_model import PowerfulCNNLSTMModel
-from src.approach_1.powerful.embeddings import get_tfidf_embeddings
+from src.approach_1.powerful.embeddings import get_tfidf_embeddings, get_pretrained_embeddings
+
 
 # Custom loss
 class MultiTaskLoss(nn.Module):
@@ -87,8 +88,10 @@ def train_model(
     
     if embedding_type == "tfidf":
         embedding_matrix = get_tfidf_embeddings(vocab_list, captions, embedding_dim=embedding_dim)
+    elif "word2vec" in embedding_type or "glove" in embedding_type:
+        embedding_matrix = get_pretrained_embeddings(vocab_list, model_name=embedding_type, embedding_dim=embedding_dim, captions=captions)
     else:
-        print(f"Warning: Embedding type {embedding_type} not supported in powerful variant (TF-IDF only). Using random.")
+        print(f"Warning: Embedding type {embedding_type} not supported. Using random initialization.")
     
     # Model
     model = PowerfulCNNLSTMModel(

@@ -23,7 +23,7 @@ torch.multiprocessing.set_sharing_strategy('file_system')
 
 from src.utils.dataset_torch import get_loader, save_vocab
 from src.approach_2.flash_attention.caption_model import FlashViTCaptionModel
-from src.approach_2.flash_attention.embeddings import get_tfidf_embeddings
+from src.approach_2.flash_attention.embeddings import get_tfidf_embeddings, get_pretrained_embeddings
 
 def train_model(
     csv_path,
@@ -83,10 +83,15 @@ def train_model(
     
     # Embeddings
     embedding_matrix = None
-    # Only TF-IDF is supported in this variant to avoid gensim dependency
     captions = train_dataset.captions
     vocab_list = [vocab.itos[i] for i in range(len(vocab))]
-    embedding_matrix = get_tfidf_embeddings(vocab_list, captions, embedding_dim=embedding_dim)
+    
+    if embedding_type == "tfidf":
+        embedding_matrix = get_tfidf_embeddings(vocab_list, captions, embedding_dim=embedding_dim)
+    elif "word2vec" in embedding_type or "glove" in embedding_type:
+        embedding_matrix = get_pretrained_embeddings(vocab_list, model_name=embedding_type, embedding_dim=embedding_dim, captions=captions)
+    else:
+        print(f"Warning: Embedding type {embedding_type} not supported. Using random initialization.")
 
     # Model
     model = FlashViTCaptionModel(
