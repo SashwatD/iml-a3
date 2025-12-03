@@ -30,11 +30,7 @@ def compute_tfidf_matrix(captions, vocab_list, embedding_dim=256):
     
     return word_features.astype("float32")
 
-def load_word2vec_binary(fname):
-    """
-    Loads a Word2Vec model from a binary file without using gensim.
-    Assumes the format: vocab_size vector_size\n word <space> vector ...
-    """
+def load_binary(fname):
     import struct
     
     embeddings = {}
@@ -88,20 +84,15 @@ def get_pretrained_embeddings(vocab_list, model_name="glove-wiki-gigaword-100", 
     
     embeddings_dict = {}
     model_dim = 0
-    
-    if model_name == "word2vec" and not os.path.exists(local_path):
-        raise NotImplementedError("Scratch training without gensim is not implemented.")
-        
+
+    print(f"Loading pre-trained model: {model_name}...")
+    if os.path.exists(local_path):
+        print(f"Found local embedding file: {local_path}")
+        embeddings_dict, model_dim = load_binary(local_path)
+    elif os.path.exists(model_name):
+        embeddings_dict, model_dim = load_binary(model_name)
     else:
-        print(f"Loading pre-trained model: {model_name}...")
-        if os.path.exists(local_path):
-            print(f"Found local embedding file: {local_path}")
-            embeddings_dict, model_dim = load_word2vec_binary(local_path)
-        elif os.path.exists(model_name):
-             # Fallback to direct path
-            embeddings_dict, model_dim = load_word2vec_binary(model_name)
-        else:
-            raise FileNotFoundError(f"Could not find embedding file at {local_path} or {model_name}. Please run src/utils/download_embeddings.py first.")
+        raise FileNotFoundError(f"Could not find embedding file at {local_path} or {model_name}. Please run src/utils/download_embeddings.py first.")
 
     vocab_size = len(vocab_list)
     
