@@ -107,7 +107,6 @@ def get_pretrained_embeddings(vocab_list, model_name="glove-wiki-gigaword-100", 
     
     # Check dimension
     if model_dim != embedding_dim:
-        print(f"Warning: Requested embedding_dim {embedding_dim} does not match model dim {model_dim}.")
         print(f"Using model dim {model_dim}.")
         embedding_dim = model_dim
         
