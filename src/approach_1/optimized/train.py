@@ -42,7 +42,7 @@ def train_model(
     image_dir,
     output_dir=os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../models/approach-1-optimized")),
     epochs=20,
-    batch_size=128,
+    batch_size=64,
     learning_rate=1e-3,
     image_size=(224, 224),
     embedding_dim=300,
@@ -103,7 +103,7 @@ def train_model(
     model = OptimizedCNNLSTMModel(
         vocab_size=len(vocab),
         embed_dim=embedding_dim,
-        hidden_dim=512,
+        hidden_dim=256, # Reduced for M4
         embedding_matrix=embedding_matrix
     ).to(device)
     

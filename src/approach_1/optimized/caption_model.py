@@ -84,7 +84,7 @@ class OptimizedCNNLSTMModel(nn.Module):
         self.lstm = nn.LSTM(
             input_size=embed_dim + embed_dim, 
             hidden_size=hidden_dim,
-            num_layers=2,
+            num_layers=1,
             batch_first=True,
             dropout=dropout_rate
         )
@@ -103,8 +103,8 @@ class OptimizedCNNLSTMModel(nn.Module):
         
         # A. Initialize States with Image
         # This gives the LSTM a "mood" before it sees any text
-        h0 = torch.tanh(self.init_h(cnn_feats)).unsqueeze(0).repeat(2, 1, 1) # Repeat for 2 layers
-        c0 = torch.tanh(self.init_c(cnn_feats)).unsqueeze(0).repeat(2, 1, 1)
+        h0 = torch.tanh(self.init_h(cnn_feats)).unsqueeze(0).repeat(1, 1, 1) # Repeat for 1 layer
+        c0 = torch.tanh(self.init_c(cnn_feats)).unsqueeze(0).repeat(1, 1, 1)
         
         # B. Prepare Image Context (for Input Feeding)
         # (B, 512) -> (B, 300) -> (B, 1, 300)
@@ -139,8 +139,9 @@ class OptimizedCNNLSTMModel(nn.Module):
             cnn_feats = self.cnn(image.unsqueeze(0))
             
             # 2. Init States
-            h = torch.tanh(self.init_h(cnn_feats)).unsqueeze(0).repeat(2, 1, 1)
-            c = torch.tanh(self.init_c(cnn_feats)).unsqueeze(0).repeat(2, 1, 1)
+            num_layers = self.lstm.num_layers
+            h = torch.tanh(self.init_h(cnn_feats)).unsqueeze(0).repeat(num_layers, 1, 1)
+            c = torch.tanh(self.init_c(cnn_feats)).unsqueeze(0).repeat(num_layers, 1, 1)
             
             # 3. Prepare Image Context
             img_context = self.visual_proj(cnn_feats).unsqueeze(1) # (1, 1, 300)

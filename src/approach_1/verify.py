@@ -55,8 +55,14 @@ def generate_caption(model, image_path, vocab, variant="basic", max_length=50, d
             
             # 1. Init States
             # h0, c0 = init_h(img), init_c(img)
-            h0 = torch.tanh(model.init_h(img_features)).unsqueeze(0).repeat(2, 1, 1)
-            c0 = torch.tanh(model.init_c(img_features)).unsqueeze(0).repeat(2, 1, 1)
+
+            # Number of layers
+            if variant == "powerful":
+                num_layers = 2
+            else:
+                num_layers = 1
+            h0 = torch.tanh(model.init_h(img_features)).unsqueeze(0).repeat(num_layers, 1, 1)
+            c0 = torch.tanh(model.init_c(img_features)).unsqueeze(0).repeat(num_layers, 1, 1)
             initial_states = (h0, c0)
             
             # 2. Prepare Image Context (for Input Feeding)
