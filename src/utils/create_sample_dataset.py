@@ -7,8 +7,8 @@ from tqdm import tqdm
 def create_sample_dataset(
     source_csv="data/images/artemis_dataset_release_v0.csv",
     source_img_dir="data/images/wikiart",
-    target_base_dir="data/sample",
-    sample_size=10000,
+    target_base_dir="data/sampled_images_2",
+    sample_size=20000,
     stratify_col="art_style"
 ):
     print(f"Loading dataset from {source_csv}...")
