@@ -138,7 +138,7 @@ def train_model(
             optimizer.zero_grad()
             
             caption_inputs = captions[:, :-1]
-            caption_targets = captions
+            caption_targets = captions[:, 1:] # Input Feeding: Predict next word
             
             outputs, emotion_logits = model(imgs, caption_inputs)
             

@@ -42,25 +42,14 @@ class CustomCNN(nn.Module):
         return x
 
 class OptimizedCNNLSTMModel(nn.Module):
-    def __init__(self, vocab_size, embed_dim=300, hidden_dim=512, embedding_matrix=None, num_emotions=9, dropout_rate=0.5):
+    def __init__(self, vocab_size, embed_dim=300, hidden_dim=512, embedding_matrix=None, num_emotions=9, dropout_rate=0.4):
         super(OptimizedCNNLSTMModel, self).__init__()
         
-        # Shared Encoder (The Backbone)
+        # 1. Shared Encoder
         self.cnn = CustomCNN(output_dim=512)
         
-        # The "Caption" Path (For Captioning)
-        # Deep projection to force the model to learn OBJECTS here
-        self.caption_projector = nn.Sequential(
-            nn.Linear(512, 512),
-            nn.BatchNorm1d(512),
-            nn.ReLU(),
-            nn.Dropout(dropout_rate),
-            nn.Linear(512, embed_dim) # Down to embed_dim for LSTM
-        )
-        
-        # The "Emotion" Path (For Classification)
-        # Separate projection to keep SENTIMENT here
-        self.emotion_projector = nn.Sequential(
+        # 2. Emotion Branch (Auxiliary)
+        self.emotion_head = nn.Sequential(
             nn.Linear(512, 256),
             nn.BatchNorm1d(256),
             nn.ReLU(),
@@ -68,14 +57,32 @@ class OptimizedCNNLSTMModel(nn.Module):
             nn.Linear(256, num_emotions)
         )
         
-        # Sequence Decoder (Standard)
+        # 3. Caption Branch
+        
+        # A. Visual Features Projection
+        # We project image features to match embedding dimension
+        self.visual_proj = nn.Sequential(
+            nn.Linear(512, embed_dim),
+            nn.BatchNorm1d(embed_dim),
+            nn.ReLU()
+        )
+        
+        # B. Initialization Projectors
+        # We transform the image to initialize LSTM hidden/cell states
+        self.init_h = nn.Linear(512, hidden_dim)
+        self.init_c = nn.Linear(512, hidden_dim)
+        
+        # C. Text Embedding
         self.embedding = nn.Embedding(vocab_size, embed_dim)
         if embedding_matrix is not None:
             self.embedding.weight = nn.Parameter(torch.tensor(embedding_matrix, dtype=torch.float32))
-            self.embedding.weight.requires_grad = False
+            # FIX: Unfreeze embeddings so the model can learn specific art words
+            self.embedding.weight.requires_grad = True 
             
+        # D. LSTM (Input Feeding)
+        # Input Size = Word_Embed (300) + Image_Proj (300) = 600
         self.lstm = nn.LSTM(
-            input_size=embed_dim,
+            input_size=embed_dim + embed_dim, 
             hidden_size=hidden_dim,
             num_layers=2,
             batch_first=True,
@@ -86,30 +93,78 @@ class OptimizedCNNLSTMModel(nn.Module):
         self.dropout = nn.Dropout(dropout_rate)
 
     def forward(self, images, captions):
-        # 1. Shared Features
-        shared_feats = self.cnn(images) # (B, 512)
+        # 1. Get Visual Features
+        cnn_feats = self.cnn(images) # (B, 512)
         
-        # 2. Split Paths
-        # Caption Vector: "Woman, Beach, Sand"
-        caption_vec = self.caption_projector(shared_feats) # (B, embed_dim)
+        # 2. Predict Emotion (Auxiliary Task)
+        emotion_logits = self.emotion_head(cnn_feats)
         
-        # Emotion Logits: "Happy, Calm"
-        emotion_logits = self.emotion_projector(shared_feats) # (B, num_emotions)
+        # 3. Prepare LSTM Inputs
         
-        # 3. Caption Generation (Using only Caption Vector)
-        # We inject the caption vector as the first token (Context Primer)
-        img_token = caption_vec.unsqueeze(1) # (B, 1, embed_dim)
+        # A. Initialize States with Image
+        # This gives the LSTM a "mood" before it sees any text
+        h0 = torch.tanh(self.init_h(cnn_feats)).unsqueeze(0).repeat(2, 1, 1) # Repeat for 2 layers
+        c0 = torch.tanh(self.init_c(cnn_feats)).unsqueeze(0).repeat(2, 1, 1)
         
-        # Embed captions (exclude <end> as usual for input)
-        text_embeds = self.embedding(captions) # (B, SeqLen, embed_dim)
+        # B. Prepare Image Context (for Input Feeding)
+        # (B, 512) -> (B, 300) -> (B, 1, 300)
+        img_context = self.visual_proj(cnn_feats).unsqueeze(1)
         
-        # Concatenate [Image, Words]
-        lstm_input = torch.cat((img_token, text_embeds), dim=1) # (B, SeqLen+1, embed_dim)
+        # C. Prepare Text
+        # (B, SeqLen) -> (B, SeqLen, 300)
+        # Note: We assume captions input excludes <end>, or we handle it in training loop
+        embeds = self.embedding(captions) 
         
-        lstm_out, _ = self.lstm(lstm_input)
+        # D. Input Feeding: Concatenate Image to Every Word
+        # We expand image context to match sequence length
+        seq_len = embeds.size(1)
+        img_context_expanded = img_context.repeat(1, seq_len, 1) # (B, SeqLen, 300)
         
-        # Output
-        lstm_out = self.dropout(lstm_out)
-        caption_logits = self.fc_out(lstm_out)
+        # New Input: (B, SeqLen, 600)
+        lstm_input = torch.cat((embeds, img_context_expanded), dim=2)
+        
+        # 4. LSTM Pass
+        lstm_out, _ = self.lstm(lstm_input, (h0, c0))
+        
+        # 5. Output
+        caption_logits = self.fc_out(self.dropout(lstm_out))
         
         return caption_logits, emotion_logits
+
+    def generate(self, image, vocab, max_len=20):
+        # Inference Logic for Input Feeding
+        self.eval()
+        with torch.no_grad():
+            # 1. Encode Image
+            cnn_feats = self.cnn(image.unsqueeze(0))
+            
+            # 2. Init States
+            h = torch.tanh(self.init_h(cnn_feats)).unsqueeze(0).repeat(2, 1, 1)
+            c = torch.tanh(self.init_c(cnn_feats)).unsqueeze(0).repeat(2, 1, 1)
+            
+            # 3. Prepare Image Context
+            img_context = self.visual_proj(cnn_feats).unsqueeze(1) # (1, 1, 300)
+            
+            # 4. Start Token
+            word_idx = vocab.stoi["<start>"]
+            caption = []
+            
+            for _ in range(max_len):
+                # Embed Word
+                word_embed = self.embedding(torch.tensor([[word_idx]]).to(image.device)) # (1, 1, 300)
+                
+                # Concat [Word, Image]
+                lstm_in = torch.cat((word_embed, img_context), dim=2)
+                
+                # Step
+                out, (h, c) = self.lstm(lstm_in, (h, c))
+                logits = self.fc_out(out.squeeze(1))
+                
+                # Pick Next Word
+                word_idx = logits.argmax(1).item()
+                if word_idx == vocab.stoi["<end>"]:
+                    break
+                    
+                caption.append(vocab.itos[word_idx])
+                
+            return " ".join(caption)

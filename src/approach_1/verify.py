@@ -48,21 +48,21 @@ def generate_caption(model, image_path, vocab, variant="basic", max_length=50, d
         if variant == "basic":
             # Basic: Project once
             img_features = model.visual_projection(img_features) # (1, embed_dim)
-            
-            # Initial states are None
             sequences = [[0.0, [vocab.stoi["<start>"]], None]]
             
         elif variant in ["optimized", "powerful"]:
-            # Optimized/Powerful: Image as Context Primer
-            # Use content_projector (Split-Head Architecture)
-            img_embed = model.content_projector(img_features) # (1, embed_dim)
+            # Optimized/Powerful: Input Feeding + State Init
             
-            # Step 1: Feed Image to get initial state
-            lstm_input = img_embed.unsqueeze(1) # (1, 1, embed_dim)
-            hiddens, states = model.lstm(lstm_input)
+            # 1. Init States
+            # h0, c0 = init_h(img), init_c(img)
+            h0 = torch.tanh(model.init_h(img_features)).unsqueeze(0).repeat(2, 1, 1)
+            c0 = torch.tanh(model.init_c(img_features)).unsqueeze(0).repeat(2, 1, 1)
+            initial_states = (h0, c0)
             
-            # Initial sequence starts with <start> (which we will feed next), but state is already primed by image
-            sequences = [[0.0, [vocab.stoi["<start>"]], states]]
+            # 2. Prepare Image Context (for Input Feeding)
+            img_context = model.visual_proj(img_features).unsqueeze(1) # (1, 1, embed_dim)
+            
+            sequences = [[0.0, [vocab.stoi["<start>"]], initial_states]]
 
         for _ in range(max_length):
             all_candidates = []
@@ -82,8 +82,10 @@ def generate_caption(model, image_path, vocab, variant="basic", max_length=50, d
                     img_features_expanded = img_features.unsqueeze(1)
                     lstm_input = torch.cat((embeds, img_features_expanded), dim=2)
                 else:
-                    # Optimized/Powerful: Just the token embedding
-                    lstm_input = embeds
+                    # Optimized/Powerful: Input Feeding (Concat Image to Word)
+                    # embeds: (1, 1, embed_dim)
+                    # img_context: (1, 1, embed_dim)
+                    lstm_input = torch.cat((embeds, img_context), dim=2) # (1, 1, 2*embed_dim)
                 
                 # LSTM Step
                 hiddens, new_states = model.lstm(lstm_input, states)
@@ -170,6 +172,7 @@ if __name__ == "__main__":
             print("Model loaded successfully.")
         except Exception as e:
             print(f"Error loading model: {e}")
+            print("CRITICAL: You must RETRAIN the model because the architecture has changed (Input Feeding).")
             sys.exit(1)
             
         # Select Random Image
