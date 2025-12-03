@@ -5,44 +5,33 @@ import torch.nn.functional as F
 class CustomCNN(nn.Module):
     def __init__(self, output_dim=512):
         super(CustomCNN, self).__init__()
-        
-        # 5 VGG-Style Blocks
-        self.conv1 = nn.Conv2d(3, 32, kernel_size=3, padding=1)
-        self.bn1 = nn.BatchNorm2d(32)
-        self.pool1 = nn.MaxPool2d(2, 2)
-        
-        self.conv2 = nn.Conv2d(32, 64, kernel_size=3, padding=1)
-        self.bn2 = nn.BatchNorm2d(64)
-        self.pool2 = nn.MaxPool2d(2, 2)
-        
-        self.conv3 = nn.Conv2d(64, 128, kernel_size=3, padding=1)
-        self.bn3 = nn.BatchNorm2d(128)
-        self.pool3 = nn.MaxPool2d(2, 2)
-        
-        self.conv4 = nn.Conv2d(128, 256, kernel_size=3, padding=1)
-        self.bn4 = nn.BatchNorm2d(256)
-        self.pool4 = nn.MaxPool2d(2, 2)
-        
-        self.conv5 = nn.Conv2d(256, 512, kernel_size=3, padding=1)
-        self.bn5 = nn.BatchNorm2d(512)
-        self.pool5 = nn.MaxPool2d(2, 2)
-        
+        # Standard VGG-style blocks
+        self.conv1 = nn.Sequential(nn.Conv2d(3, 32, 3, 1, 1), nn.BatchNorm2d(32), nn.ReLU(), nn.MaxPool2d(2))
+        self.conv2 = nn.Sequential(nn.Conv2d(32, 64, 3, 1, 1), nn.BatchNorm2d(64), nn.ReLU(), nn.MaxPool2d(2))
+        self.conv3 = nn.Sequential(nn.Conv2d(64, 128, 3, 1, 1), nn.BatchNorm2d(128), nn.ReLU(), nn.MaxPool2d(2))
+        self.conv4 = nn.Sequential(nn.Conv2d(128, 256, 3, 1, 1), nn.BatchNorm2d(256), nn.ReLU(), nn.MaxPool2d(2))
+        self.conv5 = nn.Sequential(nn.Conv2d(256, 512, 3, 1, 1), nn.BatchNorm2d(512), nn.ReLU(), nn.MaxPool2d(2))
         self.global_pool = nn.AdaptiveAvgPool2d((1, 1))
-        self.relu = nn.ReLU()
 
     def forward(self, x):
-        x = self.pool1(self.relu(self.bn1(self.conv1(x))))
-        x = self.pool2(self.relu(self.bn2(self.conv2(x))))
-        x = self.pool3(self.relu(self.bn3(self.conv3(x))))
-        x = self.pool4(self.relu(self.bn4(self.conv4(x))))
-        x = self.pool5(self.relu(self.bn5(self.conv5(x))))
-        
+        x = self.conv1(x)
+        x = self.conv2(x)
+        x = self.conv3(x)
+        x = self.conv4(x)
+        x = self.conv5(x)
         x = self.global_pool(x)
-        x = x.view(x.size(0), -1) # (B, 512)
-        return x
+        return x.view(x.size(0), -1)
 
 class PowerfulCNNLSTMModel(nn.Module):
-    def __init__(self, vocab_size, embed_dim=300, hidden_dim=512, embedding_matrix=None, num_emotions=9, dropout_rate=0.4):
+    def __init__(
+        self, 
+        vocab_size, 
+        embed_dim=300, 
+        hidden_dim=512, 
+        embedding_matrix=None, 
+        num_emotions=9, 
+        dropout_rate=0.4
+    ):
         super(PowerfulCNNLSTMModel, self).__init__()
         
         # 1. Shared Encoder

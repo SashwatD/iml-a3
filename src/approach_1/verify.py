@@ -146,7 +146,7 @@ if __name__ == "__main__":
     
     # Configuration
     VARIANT = "powerful" # "basic", "optimized", "powerful"
-    EMBEDDING_TYPE = "tfidf"
+    EMBEDDING_TYPE = "word2vec-google-news-300"
     
     if VARIANT == "basic":
         MODEL_DIR = os.path.join(BASE_DIR, f"models/approach-1-basic/{EMBEDDING_TYPE}")
@@ -170,7 +170,7 @@ if __name__ == "__main__":
         elif VARIANT == "optimized":
             model = OptimizedCNNLSTMModel(vocab_size=len(vocab), embed_dim=300, hidden_dim=512)
         elif VARIANT == "powerful":
-            model = PowerfulCNNLSTMModel(vocab_size=len(vocab), embed_dim=512, hidden_dim=512)
+            model = PowerfulCNNLSTMModel(vocab_size=len(vocab), embed_dim=300, hidden_dim=512)
             
         model = model.to(device)
         
