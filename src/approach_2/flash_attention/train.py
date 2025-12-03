@@ -29,11 +29,11 @@ def train_model(
     csv_path,
     image_dir,
     output_dir=os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../models/approach-2-flash")),
-    epochs=150, # Matched finetuning variant
+    epochs=100, # Matched finetuning variant
     batch_size=256,
     learning_rate=2e-4,
     image_size=(224, 224),
-    embedding_dim=512, 
+    embedding_dim=512,
     embedding_type="tfidf"
 ):
     output_dir = os.path.join(output_dir, embedding_type)
