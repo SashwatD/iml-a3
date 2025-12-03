@@ -1,6 +1,6 @@
 import sys
 import os
-# Add project root to sys.path to allow importing from src
+# Add project root
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../")))
 
 import torch
@@ -14,6 +14,8 @@ from src.approach_2.scratch.caption_model import ViTCaptionModel
 from src.approach_2.pretrained.caption_model import PretrainedViTCaptionModel
 from src.approach_2.flash_attention.caption_model import FlashViTCaptionModel
 from src.approach_2.finetuning.caption_model import FinetunedViTCaptionModel
+from src.helpers.metrics import evaluate_model
+
 
 def generate_caption(model, image_path, vocab, variant, max_length=50, device="cpu", image_size=(224, 224), beam_size=5, temperature=0.8, alpha=0.8):
     model.eval()
@@ -137,7 +139,18 @@ def generate_caption(model, image_path, vocab, variant, max_length=50, device="c
             if token == vocab.stoi["<end>"]: break
             result_caption.append(vocab.itos[token])
             
-    return " ".join(result_caption), true_caption, true_emotion
+        # Predict Emotion (if model has emotion head)
+        emotion_logits = None
+             
+    # Map true emotion to index
+    EMOTION_MAP = {
+        "amusement": 0, "anger": 1, "awe": 2, "contentment": 3,
+        "disgust": 4, "excitement": 5, "fear": 6, "sadness": 7,
+        "something else": 8
+    }
+    true_emotion_idx = EMOTION_MAP.get(true_emotion, 8)
+
+    return " ".join(result_caption), true_caption, emotion_logits, true_emotion_idx
 
 if __name__ == "__main__":
     VARIANT = "flash" # Options: "scratch", "pretrained", "flash", "finetuning"
@@ -228,7 +241,7 @@ if __name__ == "__main__":
             sys.exit(1)
         
         if os.path.exists(IMG_PATH):
-            caption, true_caption, emotion = generate_caption(
+            caption, true_caption, emotion_logits, true_emotion_idx = generate_caption(
                 model, 
                 IMG_PATH, 
                 vocab, 
@@ -241,7 +254,31 @@ if __name__ == "__main__":
             )
             print(f"Generated: {caption}")
             print(f"True Caption: {true_caption}")
-            print(f"Emotion: {emotion}")
+            
+            # Print Emotions
+            EMOTION_MAP = {
+                "amusement": 0, "anger": 1, "awe": 2, "contentment": 3,
+                "disgust": 4, "excitement": 5, "fear": 6, "sadness": 7,
+                "something else": 8
+            }
+            idx_to_emo = {v: k for k, v in EMOTION_MAP.items()}
+            true_emo_str = idx_to_emo.get(true_emotion_idx, "Unknown")
+            print(f"True Emotion: {true_emo_str}")
+            
+            if emotion_logits is not None:
+                pred_emo_idx = torch.argmax(emotion_logits, dim=-1).item()
+                pred_emo_str = idx_to_emo.get(pred_emo_idx, "Unknown")
+                print(f"Predicted Emotion: {pred_emo_str}")
+            
+            # Calculate Metrics
+            from src.helpers.metrics import evaluate_model
+            
+            # Get emotion logits if available
+            # Note: generate_caption returns 'emotion' which is the true emotion string
+            # We need predicted logits.
+            # Let's update generate_caption to return logits too.
+            
+            evaluate_model([true_caption], [caption], emotion_preds=emotion_logits, emotion_targets=torch.tensor([true_emotion_idx]))
         else:
             print(f"Image not found: {IMG_PATH}")
     else:

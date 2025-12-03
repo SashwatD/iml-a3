@@ -10,8 +10,8 @@ import torch.nn.functional as F
 
 from src.utils.dataset_torch import load_vocab
 from src.approach_1.basic.caption_model import CNNLSTMModel
-from src.approach_1.optimized.caption_model import OptimizedCNNLSTMModel
 from src.approach_1.powerful.caption_model import PowerfulCNNLSTMModel
+from src.helpers.metrics import evaluate_model
 
 def generate_caption(model, image_path, vocab, variant="basic", max_length=50, device="cpu", image_size=(224, 224), beam_size=5, temperature=0.8, alpha=0.8):
     model.eval()
@@ -26,20 +26,30 @@ def generate_caption(model, image_path, vocab, variant="basic", max_length=50, d
     img = Image.open(image_path).convert("RGB")
     img = transform(img).unsqueeze(0).to(device)
     
-    # Get True Data
-    BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../"))
-    CSV_PATH = os.path.join(BASE_DIR, "data/sampled_images/artemis_dataset_release_v0.csv")
-    painting_name = image_path.split("/")[-1].split(".")[0]
-    try:
-        df = pd.read_csv(CSV_PATH)
-        row = df[df["painting"] == painting_name].iloc[0]
-        true_caption = row["utterance"]
-    except:
-        true_caption = "Unknown"
+    # Emotion Map (Same as dataset)
+    EMOTION_MAP = {
+        "amusement": 0, "anger": 1, "awe": 2, "contentment": 3,
+        "disgust": 4, "excitement": 5, "fear": 6, "sadness": 7,
+        "something else": 8
+    }
 
     with torch.no_grad():
         # 1. Extract Features
         img_features = model.cnn(img)
+        
+        # Get True Data
+        BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../"))
+        CSV_PATH = os.path.join(BASE_DIR, "data/sampled_images/artemis_dataset_release_v0.csv")
+        painting_name = image_path.split("/")[-1].split(".")[0]
+        try:
+            df = pd.read_csv(CSV_PATH)
+            row = df[df["painting"] == painting_name].iloc[0]
+            true_caption = row["utterance"]
+            true_emotion = row["emotion"]
+            true_emotion_idx = EMOTION_MAP.get(true_emotion, 8)
+        except:
+            true_caption = "Unknown"
+            true_emotion_idx = 8
         
         # Beam Search Setup
         sequences = [[0.0, [vocab.stoi["<start>"]], None]] # Score, Sequence, States
@@ -138,20 +148,21 @@ def generate_caption(model, image_path, vocab, variant="basic", max_length=50, d
             if token == vocab.stoi["<end>"]: break
             result_caption.append(vocab.itos[token])
             
-    return " ".join(result_caption), true_caption
+        # Predict Emotion
+        emotion_logits = model.emotion_head(img_features)
+            
+    return " ".join(result_caption), true_caption, emotion_logits, true_emotion_idx
 
 if __name__ == "__main__":
     BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../"))
     CSV_PATH = os.path.join(BASE_DIR, "data/sampled_images/artemis_dataset_release_v0.csv")
     
     # Configuration
-    VARIANT = "powerful" # "basic", "optimized", "powerful"
-    EMBEDDING_TYPE = "word2vec-google-news-300"
+    VARIANT = "powerful" # "basic", "powerful"
+    EMBEDDING_TYPE = "glove-wiki-gigaword-100"
     
     if VARIANT == "basic":
         MODEL_DIR = os.path.join(BASE_DIR, f"models/approach-1-basic/{EMBEDDING_TYPE}")
-    elif VARIANT == "optimized":
-        MODEL_DIR = os.path.join(BASE_DIR, f"models/approach-1-optimized/{EMBEDDING_TYPE}")
     elif VARIANT == "powerful":
         MODEL_DIR = os.path.join(BASE_DIR, f"models/approach-1-powerful/{EMBEDDING_TYPE}")
         
@@ -167,10 +178,8 @@ if __name__ == "__main__":
         
         if VARIANT == "basic":
             model = CNNLSTMModel(vocab_size=len(vocab), embed_dim=300, hidden_dim=512)
-        elif VARIANT == "optimized":
-            model = OptimizedCNNLSTMModel(vocab_size=len(vocab), embed_dim=300, hidden_dim=512)
         elif VARIANT == "powerful":
-            model = PowerfulCNNLSTMModel(vocab_size=len(vocab), embed_dim=300, hidden_dim=512)
+            model = PowerfulCNNLSTMModel(vocab_size=len(vocab), embed_dim=100, hidden_dim=512)
             
         model = model.to(device)
         
@@ -179,7 +188,6 @@ if __name__ == "__main__":
             print("Model loaded successfully.")
         except Exception as e:
             print(f"Error loading model: {e}")
-            print("CRITICAL: You must RETRAIN the model because the architecture has changed (Input Feeding).")
             sys.exit(1)
             
         # Select Random Image
@@ -192,7 +200,7 @@ if __name__ == "__main__":
             if os.path.exists(full_img_path):
                 print(f"Selected Image: {full_img_path}")
                 
-                caption, true_caption = generate_caption(
+                caption, true_caption, emotion_logits, true_emotion_idx = generate_caption(
                     model, 
                     full_img_path, 
                     vocab, 
@@ -203,6 +211,26 @@ if __name__ == "__main__":
                 )
                 print(f"True Caption: {true_caption}")
                 print(f"Generated: {caption}")
+                
+                # Print Emotions
+                EMOTION_MAP = {
+                    "amusement": 0, "anger": 1, "awe": 2, "contentment": 3,
+                    "disgust": 4, "excitement": 5, "fear": 6, "sadness": 7,
+                    "something else": 8
+                }
+                idx_to_emo = {v: k for k, v in EMOTION_MAP.items()}
+                true_emo_str = idx_to_emo.get(true_emotion_idx, "Unknown")
+                print(f"True Emotion: {true_emo_str}")
+                
+                if emotion_logits is not None:
+                    pred_emo_idx = torch.argmax(emotion_logits, dim=-1).item()
+                    pred_emo_str = idx_to_emo.get(pred_emo_idx, "Unknown")
+                    print(f"Predicted Emotion: {pred_emo_str}")
+                
+                # Calculate Metrics
+                from src.helpers.metrics import evaluate_model
+                # Pass emotion data if available
+                evaluate_model([true_caption], [caption], emotion_preds=emotion_logits, emotion_targets=torch.tensor([true_emotion_idx]))
             else:
                 print(f"Image not found: {full_img_path}")
         else:

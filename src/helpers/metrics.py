@@ -6,9 +6,13 @@ import warnings
 
 warnings.filterwarnings('ignore')
 
-
-# BLEU measures n-gram precision with brevity penalty
-# Higher BLEU = better overlap between generated and reference captions
+import nltk
+try:
+    nltk.data.find('corpora/wordnet')
+    nltk.data.find('corpora/omw-1.4')
+except LookupError:
+    nltk.download('wordnet')
+    nltk.download('omw-1.4')
 
 def get_ngrams(tokens, n):
     # Extract n-grams from a list of tokens
@@ -21,9 +25,6 @@ def get_ngrams(tokens, n):
 
 def compute_bleu_score(reference, candidate, max_n=4):
     # Calculate BLEU score for a single reference-candidate pair
-    # reference: ground truth caption (string or list of words)
-    # candidate: generated caption (string or list of words)
-    # max_n: maximum n-gram order (4 for BLEU-4)
     
     # Convert strings to token lists
     if isinstance(reference, str):
@@ -47,8 +48,6 @@ def compute_bleu_score(reference, candidate, max_n=4):
             continue
         
         # Count clipped matches
-        # Example: if candidate has "the the the" and reference has "the cat"
-        # only count 1 match for "the", not 3
         matches = 0
         for ngram in cand_ngrams:
             matches += min(cand_ngrams[ngram], ref_ngrams.get(ngram, 0))
@@ -171,11 +170,6 @@ def compute_rouge_l(reference, candidate):
 
 
 def compute_all_rouge_scores(references, candidates):
-    # Calculate ROUGE-1, ROUGE-2, ROUGE-L
-    # ROUGE-1: unigram recall
-    # ROUGE-2: bigram recall
-    # ROUGE-L: longest common subsequence F1
-    
     rouge1_scores = [compute_rouge_n(ref, cand, n=1) 
                      for ref, cand in zip(references, candidates)]
     rouge2_scores = [compute_rouge_n(ref, cand, n=2) 
@@ -188,13 +182,6 @@ def compute_all_rouge_scores(references, candidates):
         'ROUGE-2': np.mean(rouge2_scores),
         'ROUGE-L': np.mean(rougeL_scores),
     }
-
-
-# METEOR considers:
-# - Exact matches
-# - Stemming (e.g., "running" vs "run")
-# - Synonyms (e.g., "happy" vs "joyful")
-# - Word order (via alignment)
 
 def compute_meteor(reference, candidate):
     # METEOR: Metric for Evaluation of Translation with Explicit ORdering
@@ -246,17 +233,13 @@ def compute_word_accuracy(predictions, targets, pad_idx=0):
     accuracy = (correct / total).item()
     return accuracy
 
-
-# ============================================================================
-# EMOTION CLASSIFICATION METRICS (For PowerfulCNN's Aux Head)
-# ============================================================================
-
 def compute_emotion_accuracy(logits, targets):
     # Simple accuracy for emotion classification
     # logits: (batch, num_emotions) raw scores
     # targets: (batch,) emotion labels
     
-    predictions = torch.argmax(logits, dim=-1)
+    predictions = torch.argmax(logits, dim=-1).cpu()
+    targets = targets.cpu()
     correct = (predictions == targets).sum().item()
     total = targets.size(0)
     
@@ -291,10 +274,12 @@ def compute_emotion_f1(logits, targets, num_classes=9):
     return np.mean(f1_scores)
 
 
-def evaluate_model(references, candidates, verbose=True):
+def evaluate_model(references, candidates, emotion_preds=None, emotion_targets=None, verbose=True):
     # Compute all metrics at once
     # references: list of ground truth captions
     # candidates: list of generated captions
+    # emotion_preds: (optional) list/tensor of predicted emotion indices or logits
+    # emotion_targets: (optional) list/tensor of true emotion indices
     
     metrics = {}
     
@@ -312,80 +297,29 @@ def evaluate_model(references, candidates, verbose=True):
         metrics['METEOR'] = meteor
     except:
         if verbose:
-            print("Warning: METEOR calculation failed (NLTK missing?)")
+            print("Warning: METEOR calculation failed")
+            
+    # Emotion Metrics (if provided)
+    if emotion_preds is not None and emotion_targets is not None:
+        # Ensure tensors
+        if not isinstance(emotion_preds, torch.Tensor):
+            emotion_preds = torch.tensor(emotion_preds)
+        if not isinstance(emotion_targets, torch.Tensor):
+            emotion_targets = torch.tensor(emotion_targets)
+            
+        # If preds are logits (2D), get indices
+        if emotion_preds.dim() > 1:
+            acc = compute_emotion_accuracy(emotion_preds, emotion_targets)
+        else:
+            correct = (emotion_preds == emotion_targets).sum().item()
+            total = len(emotion_targets)
+            acc = correct / total if total > 0 else 0.0
+            
+        metrics['Emotion Acc'] = acc
     
     if verbose:
-        print("="*70)
-        print("EVALUATION RESULTS")
-        print("="*70)
+        print("Evaluation Results")
         for metric, score in metrics.items():
             print(f"{metric:15s}: {score:.4f}")
-        print("="*70)
     
     return metrics
-
-
-
-if __name__ == "__main__":
-    print("="*70)
-    print("TESTING METRICS MODULE")
-    print("="*70)
-    
-    # Test data
-    refs = [
-        "this painting evokes a feeling of melancholy and isolation",
-        "the vibrant colors create a sense of joy and excitement",
-        "dark tones suggest sadness and despair"
-    ]
-    
-    cands_good = [
-        "this artwork expresses melancholy and feelings of isolation",
-        "bright colors evoke joy and excitement",
-        "dark colors suggest sadness and despair"
-    ]
-    
-    cands_bad = [
-        "this is a painting",
-        "there are colors",
-        "it is dark"
-    ]
-    
-    print("\n[TEST 1] Good predictions:")
-    print("-" * 70)
-    metrics_good = evaluate_model(refs, cands_good, verbose=True)
-    
-    print("\n[TEST 2] Bad predictions:")
-    print("-" * 70)
-    metrics_bad = evaluate_model(refs, cands_bad, verbose=True)
-    
-    print("\n[TEST 3] Word accuracy (PyTorch tensors):")
-    print("-" * 70)
-    # Simulated batch
-    predictions = torch.randn(2, 10, 5000)  # (batch=2, seq=10, vocab=5000)
-    targets = torch.randint(0, 5000, (2, 10))  # (batch=2, seq=10)
-    predictions = predictions.scatter(2, targets.unsqueeze(-1), 10.0)  # Make targets have highest logits
-    
-    acc = compute_word_accuracy(predictions, targets, pad_idx=0)
-    print(f"Word Accuracy: {acc:.4f} (should be ~1.0 for this simulated case)")
-    
-    print("\n[TEST 4] Emotion metrics:")
-    print("-" * 70)
-    emotion_logits = torch.randn(32, 9)  # (batch=32, num_emotions=9)
-    emotion_targets = torch.randint(0, 9, (32,))  # (batch=32)
-    
-    emo_acc = compute_emotion_accuracy(emotion_logits, emotion_targets)
-    emo_f1 = compute_emotion_f1(emotion_logits, emotion_targets, num_classes=9)
-    print(f"Emotion Accuracy: {emo_acc:.4f}")
-    print(f"Emotion F1 (macro): {emo_f1:.4f}")
-    
-    print("\n[TEST 5] METEOR score:")
-    print("-" * 70)
-    ref_meteor = "this dark painting evokes feelings of sadness"
-    cand_meteor = "this artwork shows sadness and melancholy"
-    meteor_score = compute_meteor(ref_meteor, cand_meteor)
-    print(f"METEOR: {meteor_score:.4f}")
-    
-    print("\n" + "="*70)
-    print("[SUCCESS] All metrics working correctly!")
-    print("="*70)
-

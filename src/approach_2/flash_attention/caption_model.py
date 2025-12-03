@@ -25,7 +25,6 @@ class FlashViTCaptionModel(nn.Module):
         print(f"Loading ViT from: {vit_model_path}")
         self.vit = ViTModel.from_pretrained(vit_model_path)
 
-
         for param in self.vit.parameters():
             param.requires_grad = False # Freeze
             
