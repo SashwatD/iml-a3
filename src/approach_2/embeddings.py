@@ -24,7 +24,7 @@ def compute_tfidf_matrix(captions, vocab_list, embedding_dim=256):
         print("Error in TF-IDF fit_transform. Returning random embeddings.")
         return np.random.normal(scale=0.1, size=(len(vocab_list), embedding_dim)).astype("float32")
     
-    # Reduce dimensionality with SVD (LSA)
+    # Reduce dimensionality with SVD
     print(f"Reducing dimension to {embedding_dim} using SVD...")
     svd = TruncatedSVD(n_components=embedding_dim, random_state=42)
     word_features = svd.fit_transform(tfidf_matrix.T)
