@@ -1,38 +1,65 @@
 # ArtEmis Image Caption Generation
 
-Generate emotional, descriptive captions for artwork images using deep learning.
-
-## Models
-
-1. **CNN + LSTM (Approach 1)**: Custom CNN encoder with LSTM decoder
-2. **Vision Transformer (Approach 2)**: Attention-based architecture (to be implemented)
+This project implements image captioning models on the ArtEmis dataset using two approaches: CNN+LSTM and Vision Transformers. The models generate descriptive captions for artwork images by learning from emotion descriptions.
 
 ## Dataset
 
-- **ArtEmis Dataset**: 80,000 artworks with emotional captions
-- **WikiArt Images**: Organized by art style
-- **Subset**: Using 5-10k images for training
+ArtEmis Dataset from WikiArt collection containing artwork images paired with human-written emotional captions. The dataset includes approximately 80,000 image-caption pairs. For this project, we use a subset of 10,000-20,000 images.
 
 ## Data Storage
 
-The dataset is organized as follows:
+## Prerequisites
 
 - **Images**: Stored in `data/images/wikiart/`, organized by art style subdirectories (e.g., `Abstract_Expressionism`, `Cubism`).
 - **Metadata**: The dataset CSV file is located at `data/images/artemis_dataset_release_v0.csv`.
 
-## Setup
+## Setup Instructions
+
+1. Create and activate virtual environment:
 
 ```bash
-# Create virtual environment
 python -m venv .venv
 .venv\Scripts\activate  # Windows
-
-# Install dependencies
-pip install -r requirements.txt
-
-# Download NLTK data
-python -c "import nltk; nltk.download('punkt'); nltk.download('stopwords')"
+source .venv/bin/activate  # Linux/Mac
 ```
+
+2. Install required packages:
+
+```bash
+pip install -r requirements.txt
+```
+
+3. Download NLTK data:
+
+```bash
+python -c "import nltk; nltk.download('punkt'); nltk.download('stopwords'); nltk.download('wordnet'); nltk.download('omw-1.4')"
+```
+
+4. Download pre-trained embeddings (optional):
+
+```bash
+python src/utils/download_embeddings.py
+```
+
+## Dataset Preprocessing
+
+The preprocessing pipeline performs the following steps:
+
+### Image Preprocessing
+1. Resize images to 224x224 pixels
+2. Normalize pixel values to [0,1] range
+3. Apply data augmentation during training (random flips, brightness, contrast)
+4. Convert to tensor format
+
+### Text Preprocessing
+1. Convert captions to lowercase
+2. Remove punctuation and special characters
+3. Tokenize using whitespace splitting
+4. Build vocabulary (5,000-15,000 tokens depending on configuration)
+5. Add special tokens: `<start>`, `<end>`, `<pad>`, `<unk>`
+6. Pad or truncate sequences to maximum length of 50 tokens
+
+
 
 ## Project Structure
 
@@ -40,58 +67,97 @@ python -c "import nltk; nltk.download('punkt'); nltk.download('stopwords')"
 iml-a3/
 ├── data/
 │   ├── artemis_dataset_release_v0.csv
-│   └── wikiart/
+│   ├── wikiart/                       # Image files by art style
+│   └── processed/                     # Preprocessed metadata
 ├── src/
-│   ├── cnn_encoder.py
-│   ├── lstm_decoder.py
-│   ├── tokenizer.py
-│   └── caption_model.py
+│   ├── approach_1/                    # CNN + LSTM models
+│   │   ├── basic/                     # Basic CNN+LSTM
+│   │   └── powerful/                  # Enhanced CNN+LSTM with multi-task learning
+│   ├── approach_2/                    # Vision Transformer models
+│   │   ├── pretrained/                # Frozen ViT encoder
+│   │   ├── finetuning/                # Trainable ViT encoder
+│   │   └── flash_attention/           # Optimized transformer decoder
+│   ├── helpers/
+│   │   ├── metrics.py                 # BLEU, ROUGE, METEOR metrics
+│   │   ├── validation.py              # Model evaluation
+│   │   └── visualize.py               # Attention visualization
+│   ├── preprocessing/
+│   │   └── preprocess_unified.py      # Data preprocessing
+│   └── utils/
+│       └── dataset_torch.py           # DataLoader implementation
+├── models/                            # Trained model checkpoints
 ├── notebooks/
-│   └── 01_explore_artemis_data.ipynb
-└── models/
+│   ├── ArtEmis_Caption_Generation.ipynb  # Main report notebook
+│   └── eda.ipynb                      # Exploratory data analysis
+└── requirements.txt
 ```
 
-## Usage
+## Training Models
 
-### Train Model
-```python
-from src.caption_model import build_caption_model, compile_model
+### Approach 1: CNN + LSTM
 
-encoder, decoder, model = build_caption_model(vocab_size=5000)
-compile_model(model)
-# Training code here
+Train with TF-IDF embeddings:
+```bash
+python src/approach_1/powerful/train.py
 ```
 
-### Generate Captions
-```python
-from src.caption_model import generate_caption_greedy
+The script trains a model with:
+- Custom 5-block CNN encoder
+- 2-layer LSTM decoder with input feeding
+- Multi-task learning (captioning + emotion prediction)
+- Automatic task weighting
 
-caption = generate_caption_greedy(encoder, decoder, image, tokenizer)
-print(caption)
+### Approach 2: Vision Transformer
+
+Train with flash attention:
+```bash
+python src/approach_2/flash_attention/train.py
 ```
 
-## Architecture
+The script uses:
+- Pre-trained ViT encoder (frozen)
+- 6-layer transformer decoder
+- Cross-attention between image patches and caption tokens
 
-### CNN Encoder
-- 4 convolutional blocks (32→64→128→256 filters)
-- BatchNorm + ReLU + MaxPool
-- Output: 256D feature vector
-- Parameters: ~26M
+Training configurations can be modified in the respective train.py files. Models are saved to `models/` directory with training logs.
 
-### LSTM Decoder
-- 2-layer LSTM (256 units each)
-- Word embeddings (256D)
-- Dropout (0.3) for regularization
-- Parameters: ~5-8M
+## Evaluation
 
-## Evaluation Metrics
+Run evaluation on trained models:
 
-- BLEU (1-4 gram)
-- ROUGE-L
-- Qualitative analysis
+```bash
+python src/helpers/validation.py
+```
 
-## References
+Or use the validation functions in the Jupyter notebook. Metrics computed:
+- BLEU-1, BLEU-2, BLEU-3, BLEU-4
+- ROUGE-1, ROUGE-2, ROUGE-L
+- METEOR
+- Emotion classification accuracy
 
-- ArtEmis Dataset: Achlioptas et al., CVPR 2021
-- Word2Vec: Mikolov et al., 2013
-- GloVe: Pennington et al., 2014
+## Text Embeddings
+
+Three embedding strategies are implemented:
+
+1. **TF-IDF**: Statistical embeddings based on term frequency-inverse document frequency. Computed from training captions.
+
+2. **Word2Vec**: Pre-trained word embeddings from Google News corpus (300D). Loaded using gensim.
+
+3. **GloVe**: Pre-trained global vectors from Wikipedia (100D). Loaded using gensim.
+
+Embeddings are initialized in the model's embedding layer and can be frozen or fine-tuned during training.
+
+## Generating Captions
+
+The main notebook `notebooks/ArtEmis_Caption_Generation.ipynb` contains code for generating captions on test images. Models use beam search decoding with beam size of 5 for better quality captions.
+
+## Model Checkpoints
+
+Trained models are saved in the following format:
+- `models/approach-1-powerful/{embedding_type}/model_final.pth`
+- `models/approach-2-flash/{embedding_type}/model_final.pth`
+
+Each model directory also contains:
+- `vocab.pkl`: Vocabulary mapping
+- Loss curves
+

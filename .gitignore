@@ -37,6 +37,9 @@ results/
 # Downloads
 downloads/**
 
+# Job Files
+job.sh
+
 # IDE
 .vscode/
 .idea/
