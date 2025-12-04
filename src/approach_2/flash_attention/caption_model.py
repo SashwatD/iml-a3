@@ -21,6 +21,17 @@ class FlashViTCaptionModel(nn.Module):
     ):
         super().__init__()
         
+        # Auto-adjust num_heads if not divisible
+        if embed_dim % num_heads != 0:
+            # Find valid divisors
+            valid_heads = [h for h in range(1, 17) if embed_dim % h == 0] # Check up to 16 heads
+            if not valid_heads:
+                valid_heads = [1]
+            # Pick closest
+            new_heads = min(valid_heads, key=lambda x: abs(x - num_heads))
+            print(f"Embed_dim {embed_dim} not divisible by num_heads {num_heads}. Auto-adjusting num_heads to {new_heads}.")
+            num_heads = new_heads
+        
         # Encoder: Pretrained ViT
         print(f"Loading ViT from: {vit_model_path}")
         self.vit = ViTModel.from_pretrained(vit_model_path)
