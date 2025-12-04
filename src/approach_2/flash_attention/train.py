@@ -29,7 +29,7 @@ def train_model(
     csv_path,
     image_dir,
     output_dir=os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../models/approach-2-flash")),
-    epochs=100, # Matched finetuning variant
+    epochs=100,
     batch_size=256,
     learning_rate=2e-4,
     image_size=(224, 224),
@@ -39,7 +39,7 @@ def train_model(
     output_dir = os.path.join(output_dir, embedding_type)
     os.makedirs(output_dir, exist_ok=True)
     
-    # Device selection: Prioritize CUDA
+    # Prioritize CUDA
     if torch.cuda.is_available():
         device = torch.device("cuda")
         print(f"Using device: {device} ({torch.cuda.get_device_name(0)})")
@@ -100,9 +100,9 @@ def train_model(
     model = FlashViTCaptionModel(
         vocab_size=len(vocab),
         embed_dim=embedding_dim,
-        num_heads=8, # Explicitly set for NVIDIA
-        ff_dim=2048, # Explicitly set for NVIDIA
-        num_decoder_layers=6, # Deeper decoder
+        num_heads=8,
+        ff_dim=2048,
+        num_decoder_layers=6,
         embedding_matrix=embedding_matrix
     ).to(device)
 
@@ -118,7 +118,7 @@ def train_model(
     loss_history = []
     
     for epoch in range(epochs):
-        # Unfreeze ONLY Last Layer of Encoder after 5 epochs
+        # Unfreeze only Last 6 Layer of Encoder after 5 epochs
         if epoch == 5:
             print("Unfreezing Last 6 Layer of ViT Encoder for Fine-Tuning...")
             
@@ -198,7 +198,7 @@ def train_model(
 if __name__ == "__main__":
     # Use absolute paths
     BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../"))
-    CSV_PATH = os.path.join(BASE_DIR, "data/sampled_images/artemis_dataset_release_v0.csv") # Updated to sampled CSV
+    CSV_PATH = os.path.join(BASE_DIR, "data/sampled_images/artemis_dataset_release_v0.csv")
     IMG_DIR = os.path.join(BASE_DIR, "data/sampled_images/wikiart")
     
     if os.path.exists(CSV_PATH) and os.path.exists(IMG_DIR):

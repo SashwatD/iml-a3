@@ -9,11 +9,11 @@ class FlashViTCaptionModel(nn.Module):
     def __init__(
         self, 
         vocab_size=5000, 
-        embed_dim=512, # Increased default
-        num_heads=8, # Increased default
-        num_decoder_layers=6, # Increased default
-        ff_dim=2048, # Increased default
-        dropout=0.4, # Increased to 0.4 for stronger regularization
+        embed_dim=512, 
+        num_heads=8, 
+        num_decoder_layers=6, 
+        ff_dim=2048, 
+        dropout=0.4, 
         max_length=50,
         embedding_matrix=None,
         num_emotions=9,
@@ -58,7 +58,7 @@ class FlashViTCaptionModel(nn.Module):
             nhead=num_heads, 
             dim_feedforward=ff_dim, 
             dropout=dropout, 
-            activation='gelu', # Optimization: GELU
+            activation='gelu',
             batch_first=True
         )
         self.decoder = nn.TransformerDecoder(decoder_layer, num_layers=num_decoder_layers)
@@ -88,8 +88,6 @@ class FlashViTCaptionModel(nn.Module):
         tgt_mask = nn.Transformer.generate_square_subsequent_mask(SeqLen).to(captions.device)
         
         # Native Decoder Forward
-        # tgt: (B, SeqLen, E) because batch_first=True
-        # memory: (B, 197, E) because batch_first=True
         dec_out = self.decoder(tgt_emb, enc_out, tgt_mask=tgt_mask)
             
         caption_logits = self.fc_out(dec_out)
