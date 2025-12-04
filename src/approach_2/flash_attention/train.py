@@ -34,7 +34,7 @@ def train_model(
     learning_rate=2e-4,
     image_size=(224, 224),
     embedding_dim=512,
-    embedding_type="glove-wiki-gigaword-300"
+    embedding_type="glove-wiki-gigaword-100"
 ):
     output_dir = os.path.join(output_dir, embedding_type)
     os.makedirs(output_dir, exist_ok=True)
