@@ -2,23 +2,8 @@ import numpy as np
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.decomposition import TruncatedSVD
 import os
-import gensim.downloader as api
-from gensim.models import Word2Vec
-import nltk
-from nltk.tokenize import word_tokenize
 
 def get_tfidf_embeddings(vocab_list, captions, embedding_dim=256):
-    """
-    Generates TF-IDF embeddings reduced to embedding_dim using LSA (SVD).
-    
-    Args:
-        vocab_list: List of words in the vocabulary (itos list).
-        captions: List of string captions.
-        embedding_dim: Target dimension for the embeddings.
-        
-    Returns:
-        embedding_matrix: A numpy array of shape (vocab_size, embedding_dim).
-    """
     print("Generating TF-IDF embeddings...")
     
     if captions is None:
@@ -27,9 +12,6 @@ def get_tfidf_embeddings(vocab_list, captions, embedding_dim=256):
     return compute_tfidf_matrix(captions, vocab_list, embedding_dim=embedding_dim)
 
 def compute_tfidf_matrix(captions, vocab_list, embedding_dim=256):
-    """
-    Computes TF-IDF matrix for the vocabulary using the provided captions and reduces dimensionality via SVD.
-    """
     print(f"Computing TF-IDF on {len(captions)} captions...")
     
     vocab_dict = {word: i for i, word in enumerate(vocab_list)}
@@ -47,70 +29,72 @@ def compute_tfidf_matrix(captions, vocab_list, embedding_dim=256):
     svd = TruncatedSVD(n_components=embedding_dim, random_state=42)
     word_features = svd.fit_transform(tfidf_matrix.T)
     
-    # word_features is (n_features, embedding_dim) which corresponds to (vocab_size, embedding_dim)
-    # providing the vocab was strictly followed.
-    
     return word_features.astype("float32")
 
-def get_pretrained_embeddings(vocab_list, model_name="glove-wiki-gigaword-100", embedding_dim=100, captions=None):
-    # Ensure nltk resources are available
-    try:
-        nltk.data.find('tokenizers/punkt')
-        nltk.data.find('tokenizers/punkt_tab')
-    except LookupError:
-        nltk.download('punkt')
-        nltk.download('punkt_tab')
-
-    model = None
+def load_binary(fname):    
+    embeddings = {}
     
-    if model_name == "word2vec":
-        print("Training Word2Vec from scratch...")
-        if captions is None:
-            raise ValueError("Captions are required for training Word2Vec.")
-            
-        # Tokenize captions
-        print("Tokenizing captions for Word2Vec...")
-        tokenized_captions = [word_tokenize(cap.lower()) for cap in captions]
-        
-        print("Training Word2Vec model...")
-        model = Word2Vec(sentences=tokenized_captions, vector_size=embedding_dim, window=5, min_count=1, workers=4)
-        print("Word2Vec training complete.")
-        
-        # Word2Vec model.wv is the KeyedVectors instance
-        wv = model.wv
-        
-    else:
-        print(f"Loading pre-trained model: {model_name}...")
+    with open(fname, 'rb') as f:
+        header = f.readline()
         try:
-            # Check if it's a path or a gensim-data model
-            if os.path.exists(model_name):
-                # Load from file (assuming KeyedVectors format or similar)
-                from gensim.models import KeyedVectors
-                wv = KeyedVectors.load_word2vec_format(model_name, binary=True)
-            else:
-                # Download/Load from gensim-data
-                wv = api.load(model_name)
-                
-        except Exception as e:
-            print(f"Error loading gensim model: {e}")
-            print("Ensure you have internet connection to download embeddings.")
-            raise e
+            vocab_size, vector_size = map(int, header.split())
+        except ValueError:
+            raise ValueError(f"Invalid header in {fname}: {header}")
+
+        binary_len = np.dtype('float32').itemsize * vector_size
         
+        for _ in range(vocab_size):
+            word = []
+            while True:
+                ch = f.read(1)
+                if ch == b' ':
+                    break
+                if ch == b'':
+                    break
+                if ch != b'\n':
+                    word.append(ch)
+            
+            word_str = b''.join(word).decode('utf-8', errors='ignore')
+            
+            vector_bytes = f.read(binary_len)
+            if len(vector_bytes) != binary_len:
+                break # Should not happen if file is complete
+                
+            vector = np.frombuffer(vector_bytes, dtype='float32')
+            embeddings[word_str] = vector
+            
+    return embeddings, vector_size
+
+def get_pretrained_embeddings(vocab_list, model_name="glove-wiki-gigaword-100", embedding_dim=100, captions=None):
+    # Check local downloads first
+    local_path = os.path.join('./downloads/embeddings', f"{model_name}.bin")
+    
+    embeddings_dict = {}
+    model_dim = 0
+    
+    print(f"Loading pre-trained model: {model_name}...")
+    if os.path.exists(local_path):
+        print(f"Found local embedding file: {local_path}")
+        embeddings_dict, model_dim = load_binary(local_path)
+    elif os.path.exists(model_name):
+        embeddings_dict, model_dim = load_binary(model_name)
+    else:
+        raise FileNotFoundError(f"Could not find embedding file at {local_path} or {model_name}. Please run src/utils/download_embeddings.py first.")
+
     vocab_size = len(vocab_list)
     
     # Check dimension
-    if wv.vector_size != embedding_dim:
-        print(f"Warning: Requested embedding_dim {embedding_dim} does not match model dim {wv.vector_size}.")
-        print(f"Using model dim {wv.vector_size}.")
-        embedding_dim = wv.vector_size
+    if model_dim != embedding_dim:
+        print(f"Using model dim {model_dim}.")
+        embedding_dim = model_dim
         
     embedding_matrix = np.zeros((vocab_size, embedding_dim), dtype="float32")
     hits = 0
     misses = 0
     
     for i, word in enumerate(vocab_list):
-        if word in wv:
-            embedding_matrix[i] = wv[word]
+        if word in embeddings_dict:
+            embedding_matrix[i] = embeddings_dict[word]
             hits += 1
         else:
             # Initialize OOV with random normal

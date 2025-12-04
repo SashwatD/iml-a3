@@ -16,7 +16,7 @@ import matplotlib.pyplot as plt
 
 from src.utils.dataset_torch import get_loader, save_vocab
 from src.approach_1.powerful.caption_model import PowerfulCNNLSTMModel
-from src.approach_1.powerful.embeddings import get_tfidf_embeddings, get_pretrained_embeddings
+from src.approach_1.embeddings import get_tfidf_embeddings, get_pretrained_embeddings
 
 
 # Custom loss
